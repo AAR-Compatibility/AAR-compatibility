@@ -7,18 +7,18 @@
     <% if (found) { %>
         <h2>Specifications</h2>
         <ul>
-            <li>c_tanker: <%= spec.c_tanker %></li>
-            <li>c_receiver: <%= spec.c_receiver %></li>
-            <li>v_srd_tanker: <%= spec.v_srd_tanker %></li>
-            <li>v_srd_receiver: <%= spec.v_srd_receiver %></li>
-            <li>boom_pod_bda: <%= spec.boom_pod_bda %></li>
-            <li>min_alt: <%= spec.min_alt %></li>
-            <li>max_alt: <%= spec.max_alt %></li>
-            <li>min_as: <%= spec.min_as %></li>
-            <li>max_as_kcas: <%= spec.max_as_kcas %></li>
-            <li>max_as_m: <%= spec.max_as_m %></li>
-            <li>fuel_flow_rate: <%= spec.fuel_flow_rate %></li>
-            <li>notes: <%= spec.notes %></li>
+            <li>c_tanker: <%= result.c_tanker %></li>
+            <li>c_receiver: <%= result.c_receiver %></li>
+            <li>v_srd_tanker: <%= result.v_srd_tanker %></li>
+            <li>v_srd_receiver: <%= result.v_srd_receiver %></li>
+            <li>boom_pod_bda: <%= result.boom_pod_bda %></li>
+            <li>min_alt: <%= result.min_alt %></li>
+            <li>max_alt: <%= result.max_alt %></li>
+            <li>min_as: <%= result.min_as %></li>
+            <li>max_as_kcas: <%= result.max_as_kcas %></li>
+            <li>max_as_m: <%= result.max_as_m %></li>
+            <li>fuel_flow_rate: <%= result.fuel_flow_rate %></li>
+            <li>notes: <%= result.notes %></li>
         </ul>
     <% } else { %>
         <h2><%= message %></h2>

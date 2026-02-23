@@ -1,0 +1,17 @@
+<h1>Compatible Receivers for <%= model %> (<%= type %>, <%= nation %>)</h1>
+<table border="1">
+  <tr>
+    <th>ID</th>
+    <th>Nation</th>
+    <th>Type</th>
+    <th>Model</th>
+  </tr>
+  <% receivers.forEach(r => { %>
+    <tr>
+      <td><%= r.id %></td>
+      <td><%= r.nation %></td>
+      <td><%= r.type %></td>
+      <td><%= r.model %></td>
+    </tr>
+  <% }) %>
+</table>

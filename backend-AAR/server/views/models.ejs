@@ -1,0 +1,8 @@
+<h1>Models for <%= type %> in <%= nation %></h1>
+<ul>
+  <% models.forEach(m => { %>
+    <li>
+      <a href="/search/nations/<%= nation %>/types/<%= type %>/models/<%= m.model %>/receivers"><%= m.model %></a>
+    </li>
+  <% }) %>
+</ul>

@@ -9,43 +9,8 @@
             Here you can check the compatibility between tanker and receiver
         </h1>
 
-        <nav>
-            <a href="/hello">hello</a>
-        </nav>  
-        <nav>
-            <a href="/tables/tankers">tankers</a>
-        </nav>
-        <nav>
-            <a href="/tables/receivers">tankers</a>
-        </nav>
-        
-        <h2>Enter Text in Two Fields</h2>
-        <form action="/submit" method="POST">
-            <label for="input1">Tanker nation: </label>
-            <input type="text" id="input1" name="input1" placeholder="Tanker nation" required>
-            <label for="input2">Tanker type: </label>
-            <input type="text" id="input2" name="input2" placeholder="tanker type" required>
-            <label for="input2">Tanker model: </label>
-            <input type="text" id="input3" name="input3" placeholder="tanker mode" required>
-           
-           
-            <label for="input4">Receiver nation: </label>
-            <input type="text" id="input4" name="input4" placeholder="Receiver nation" required>
-            <label for="input5">Receiver type: </label>
-            <input type="text" id="input5" name="input5" placeholder="Receiver type" required>
-            <label for="input6">Receiver model: </label>    
-            <input type="text" id="input6" name="input6" placeholder="Receiver model" required>
-            <button type="submit">Submit</button>
-        </form>
 
-        <ul>  
-            <li><a href="/admin">Log in</a></li>
-            <li><a href="/form">Form</a></li>
-            <li><a href="/home">Home</a></li>
-        </ul>
-
-
-        <form action="/search" method="POST">
+        <form action="compatibility/submit" method="POST">
             <label>Tanker Nation:</label>
             <input type="text" name="tankerNation" required>
 
@@ -66,5 +31,12 @@
 
             <button type="submit">Search</button>
         </form>
+
+        <ul>  
+            <li><a href="/home">Home</a></li>
+            <li><a href="/search/nations">Specific Search</a> </a></li>
+            <li><a href = "/tables/tankers">Show all tankers</a></li>
+            <li><a href = "/tables/receivers">Show all receivers</a></li>
+        </ul>
     </body>
 </html>
