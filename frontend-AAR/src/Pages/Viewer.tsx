@@ -1,42 +1,52 @@
-﻿import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from 'react'
 import '../Styles/role-pages.css'
-import { searchViewer, submitViewerRequest } from '../Services/viewerService'
+import {
+  fetchViewerOptions,
+  searchViewer,
+  type ViewerOptionsResponse,
+  type ViewerPayload,
+  type ViewerResultRow,
+} from '../Services/viewerService'
 
 type ViewerPageProps = {
   onLogout: () => void
 }
 
-type ViewerFormValues = {
-  tankerNation: string
-  tankerType: string
-  tankerModel: string
-  receiverNation: string
-  receiverType: string
-  receiverModel: string
+type ViewerResultItem = {
+  query: ViewerPayload
+  result: ViewerResultRow
 }
 
-type ViewerResultRow = {
-  nationOrg: string
-  tanker_type: string
-  tanker_model: string
-  receiver_nation: string
-  receiver_type: string
-  receiver_model: string
-  c_tanker: string
-  c_receiver: string
-  v_srd_tanker: string
-  v_srd_receiver: string
-  boom_pod_BDA: string
-  min_alt: string
-  max_alt: string
-  min_as: string
-  max_as_kcas: string
-  max_as_m: string
-  fuel_flow_rate: string
-  notes: string
-}
+const RESULT_METRIC_COLUMNS: Array<{
+  key:
+    | 'boom_pod_bda'
+    | 'min_alt'
+    | 'max_alt'
+    | 'min_as'
+    | 'max_as_kcas'
+    | 'max_as_m'
+    | 'fuel_flow_rate'
+    | 'notes'
+  label: string
+}> = [
+  { key: 'boom_pod_bda', label: 'Boom_pod_bda' },
+  { key: 'min_alt', label: 'Min_Alt' },
+  { key: 'max_alt', label: 'Max_Alt' },
+  { key: 'min_as', label: 'Min_as_kcas' },
+  { key: 'max_as_kcas', label: 'Max_as_kcas' },
+  { key: 'max_as_m', label: 'Max_as_m' },
+  { key: 'fuel_flow_rate', label: 'fuel flow rate' },
+  { key: 'notes', label: 'notes' },
+]
 
-const EMPTY_FORM: ViewerFormValues = {
+const EMPTY_FORM: ViewerPayload = {
   tankerNation: '',
   tankerType: '',
   tankerModel: '',
@@ -45,111 +55,207 @@ const EMPTY_FORM: ViewerFormValues = {
   receiverModel: '',
 }
 
-const NATION_OPTIONS = ['MMF','Australie']
-const TANKER_TYPE_OPTIONS = ['A330 MRTT']
-const TANKER_MODEL_OPTIONS: Record<string, string[]> = {
-  'A330 MRTT': ['KC-30M', 'KC-30A'],
+function formatResultValue(value: string | number | null) {
+  if (value === null || value === '') {
+    return '-'
   }
-const RECEIVER_TYPE_OPTIONS = ['F-16', 'F-35', 'C-17', ]
-const RECEIVER_MODEL_OPTIONS: Record<string, string[]> = {
-  'F-16': ['A', 'B', 'C'],
-  'F-35': ['A'],
-  'C-17': ['A'],
+  return String(value)
 }
-// Show the viewer page.
-export default function ViewerPage({ onLogout }: ViewerPageProps) {
-  const [formValues, setFormValues] = useState<ViewerFormValues>(EMPTY_FORM)
-  const [isLoading, setIsLoading] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
-  const [error, setError] = useState('')
-  const [compatibility, setCompatibility] = useState('')
 
-  // Update the form fields when the user changes a selection.
+function buildResultSignature(item: ViewerResultItem) {
+  return JSON.stringify({
+    query: item.query,
+    result: item.result,
+  })
+}
+
+export default function ViewerPage({ onLogout }: ViewerPageProps) {
+  const [formValues, setFormValues] = useState<ViewerPayload>(EMPTY_FORM)
+  const [options, setOptions] = useState<ViewerOptionsResponse | null>(null)
+  const [resultItems, setResultItems] = useState<ViewerResultItem[]>([])
+  const [isLoadingOptions, setIsLoadingOptions] = useState(true)
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasSearched, setHasSearched] = useState(false)
+  const [error, setError] = useState('')
+  const [statusMessage, setStatusMessage] = useState('')
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadOptions = async () => {
+      setIsLoadingOptions(true)
+      try {
+        const fetchedOptions = await fetchViewerOptions()
+        if (!isMounted) {
+          return
+        }
+        setOptions(fetchedOptions)
+      } catch (err) {
+        if (!isMounted) {
+          return
+        }
+        setError(err instanceof Error ? err.message : 'Failed to load options.')
+      } finally {
+        if (isMounted) {
+          setIsLoadingOptions(false)
+        }
+      }
+    }
+
+    loadOptions()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
   const handleChange = (
     event: ChangeEvent<HTMLInputElement | HTMLSelectElement>,
   ) => {
     const { name, value } = event.target
     setError('')
-    setCompatibility('')
+    setStatusMessage('')
+
     setFormValues((prev) => {
+      if (name === 'tankerNation') {
+        return { ...prev, tankerNation: value, tankerType: '', tankerModel: '' }
+      }
       if (name === 'tankerType') {
         return { ...prev, tankerType: value, tankerModel: '' }
+      }
+      if (name === 'tankerModel') {
+        return { ...prev, tankerModel: value }
+      }
+      if (name === 'receiverNation') {
+        return { ...prev, receiverNation: value, receiverType: '', receiverModel: '' }
       }
       if (name === 'receiverType') {
         return { ...prev, receiverType: value, receiverModel: '' }
       }
-      return { ...prev, [name]: value }
+      if (name === 'receiverModel') {
+        return { ...prev, receiverModel: value }
+      }
+      return prev
     })
   }
 
-  // Build the table row based on the selected fields.
-  const buildResultRow = (values: ViewerFormValues) => ({
-    nationOrg: [values.tankerNation, values.receiverNation]
-      .filter(Boolean)
-      .join(' / '),
-    tanker_type: values.tankerType,
-    tanker_model: values.tankerModel,
-    receiver_nation: values.receiverNation,
-    receiver_type: values.receiverType,
-    receiver_model: values.receiverModel,
-    c_tanker: '',
-    c_receiver: '',
-    v_srd_tanker: '',
-    v_srd_receiver: '',
-    boom_pod_BDA: '',
-    min_alt: '',
-    max_alt: '',
-    min_as_kcas: '',
-    max_as_kcas: '',
-    max_as_m: '',
-    fuel_flow_rate: '',
-    notes: '',
-  })
-
-  // Create the status row from the current selections.
-  const liveRow = useMemo(() => buildResultRow(formValues), [formValues])
-
-  // Run the search request for the current selections.
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setIsLoading(true)
     setError('')
+    setStatusMessage('')
+
     try {
-      await searchViewer(formValues)
+      const response = await searchViewer(formValues)
+      let addedCount = 0
+      let skippedCount = 0
+      let totalCount = 0
+
+      setResultItems((prevItems) => {
+        const nextItems = [...prevItems]
+        const seenSignatures = new Set(
+          prevItems.map((item) => buildResultSignature(item)),
+        )
+
+        response.rows.forEach((row) => {
+          const candidate: ViewerResultItem = {
+            query: { ...formValues },
+            result: row,
+          }
+          const signature = buildResultSignature(candidate)
+          if (seenSignatures.has(signature)) {
+            skippedCount += 1
+            return
+          }
+          seenSignatures.add(signature)
+          nextItems.push(candidate)
+          addedCount += 1
+        })
+
+        totalCount = nextItems.length
+        return nextItems
+      })
+      setHasSearched(true)
+
+      if (response.rows.length === 0) {
+        setStatusMessage('No new results found for this combination.')
+      } else if (addedCount === 0) {
+        setStatusMessage('All found results are already in the list.')
+      } else {
+        const addedLabel = addedCount === 1 ? 'result' : 'results'
+        const totalLabel = totalCount === 1 ? 'result' : 'results'
+        const duplicateMessage =
+          skippedCount > 0
+            ? ` ${skippedCount} duplicate${skippedCount === 1 ? '' : 's'} skipped.`
+            : ''
+        setStatusMessage(`${addedCount} ${addedLabel} added. Total: ${totalCount} ${totalLabel}.${duplicateMessage}`)
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Search failed.')
+      setHasSearched(true)
     } finally {
       setIsLoading(false)
     }
   }
 
-  // Submit the request so it can be stored in the database.
-  const handleSubmitRequest = async () => {
-    setIsSubmitting(true)
-    setError('')
-    try {
-      await submitViewerRequest(formValues)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Submit failed.')
-    } finally {
-      setIsSubmitting(false)
-    }
+  const handleDeleteResult = (resultIndex: number) => {
+    setResultItems((prevItems) => {
+      const updatedItems = prevItems.filter((_, index) => index !== resultIndex)
+      if (updatedItems.length === 0) {
+        setStatusMessage('No results left.')
+      } else {
+        const label = updatedItems.length === 1 ? 'result' : 'results'
+        setStatusMessage(`${updatedItems.length} ${label} found.`)
+      }
+      return updatedItems
+    })
   }
 
-  // Build model options based on the selected tanker type.
+  const tankerNationOptions = useMemo(
+    () => options?.tanker.nations ?? [],
+    [options],
+  )
+
+  const tankerTypeOptions = useMemo(() => {
+    if (!options || !formValues.tankerNation) {
+      return []
+    }
+    return options.tanker.byNation[formValues.tankerNation]?.types ?? []
+  }, [options, formValues.tankerNation])
+
   const tankerModelOptions = useMemo(() => {
-    if (formValues.tankerType) {
-      return TANKER_MODEL_OPTIONS[formValues.tankerType] ?? []
+    if (!options || !formValues.tankerNation || !formValues.tankerType) {
+      return []
     }
-    return Object.values(TANKER_MODEL_OPTIONS).flat()
-  }, [formValues.tankerType])
-  // Build model options based on the selected receiver type.
+    return (
+      options.tanker.byNation[formValues.tankerNation]?.modelsByType[
+        formValues.tankerType
+      ] ?? []
+    )
+  }, [options, formValues.tankerNation, formValues.tankerType])
+
+  const receiverNationOptions = useMemo(
+    () => options?.receiver.nations ?? [],
+    [options],
+  )
+
+  const receiverTypeOptions = useMemo(() => {
+    if (!options || !formValues.receiverNation) {
+      return []
+    }
+    return options.receiver.byNation[formValues.receiverNation]?.types ?? []
+  }, [options, formValues.receiverNation])
+
   const receiverModelOptions = useMemo(() => {
-    if (formValues.receiverType) {
-      return RECEIVER_MODEL_OPTIONS[formValues.receiverType] ?? []
+    if (!options || !formValues.receiverNation || !formValues.receiverType) {
+      return []
     }
-    return Object.values(RECEIVER_MODEL_OPTIONS).flat()
-  }, [formValues.receiverType])
+    return (
+      options.receiver.byNation[formValues.receiverNation]?.modelsByType[
+        formValues.receiverType
+      ] ?? []
+    )
+  }, [options, formValues.receiverNation, formValues.receiverType])
 
   return (
     <div className="role-page">
@@ -177,11 +283,12 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
                 value={formValues.tankerNation}
                 onChange={handleChange}
                 required
+                disabled={isLoadingOptions}
               >
                 <option value="" disabled>
                   Select
                 </option>
-                {NATION_OPTIONS.map((option) => (
+                {tankerNationOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -195,11 +302,12 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
                 value={formValues.tankerType}
                 onChange={handleChange}
                 required
+                disabled={isLoadingOptions || !formValues.tankerNation}
               >
                 <option value="" disabled>
                   Select
                 </option>
-                {TANKER_TYPE_OPTIONS.map((option) => (
+                {tankerTypeOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -213,6 +321,7 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
                 value={formValues.tankerModel}
                 onChange={handleChange}
                 required
+                disabled={isLoadingOptions || !formValues.tankerType}
               >
                 <option value="" disabled>
                   Select
@@ -231,11 +340,12 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
                 value={formValues.receiverNation}
                 onChange={handleChange}
                 required
+                disabled={isLoadingOptions}
               >
                 <option value="" disabled>
                   Select
                 </option>
-                {NATION_OPTIONS.map((option) => (
+                {receiverNationOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -249,11 +359,12 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
                 value={formValues.receiverType}
                 onChange={handleChange}
                 required
+                disabled={isLoadingOptions || !formValues.receiverNation}
               >
                 <option value="" disabled>
                   Select
                 </option>
-                {RECEIVER_TYPE_OPTIONS.map((option) => (
+                {receiverTypeOptions.map((option) => (
                   <option key={option} value={option}>
                     {option}
                   </option>
@@ -267,6 +378,7 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
                 value={formValues.receiverModel}
                 onChange={handleChange}
                 required
+                disabled={isLoadingOptions || !formValues.receiverType}
               >
                 <option value="" disabled>
                   Select
@@ -280,17 +392,10 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
             </label>
           </div>
           {error && <p className="viewer-error">{error}</p>}
+          {statusMessage && <p className="viewer-intro">{statusMessage}</p>}
           <div className="viewer-form__footer">
-            <button className="btn primary" type="submit">
+            <button className="btn primary" type="submit" disabled={isLoadingOptions}>
               {isLoading ? 'Searching...' : 'Search'}
-            </button>
-            <button
-              className="btn ghost"
-              type="button"
-              onClick={handleSubmitRequest}
-              disabled={isSubmitting}
-            >
-              {isSubmitting ? 'Submitting...' : 'Submit'}
             </button>
           </div>
         </form>
@@ -298,83 +403,166 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
 
       <section className="role-card">
         <p className="viewer-intro">Results based on your selections.</p>
-        <div className="table-wrap">
-          <table className="srd_holder-table viewer-table">
+        <div className="viewer-excel-wrap">
+          <table className="viewer-excel-table">
             <colgroup>
-              <col className="col-minfl" />
-              <col className="col-minfl" />
-              <col className="col-tanker" />
-              <col className="col-recv" />
-              <col className="col-refuel" />
-              <col className="col-minfl" />
-              <col className="col-maxfl" />
-              <col className="col-minkcas" />
-              <col className="col-maxkcas" />
-              <col className="col-minkcas" />
-              <col className="col-fuel" />
-              <col className="col-status" />
+              <col className="excel-col-number" />
+              <col className="excel-col-wide" />
+              <col className="excel-col-wide" />
+              <col className="excel-col-wide" />
+              <col className="excel-col-code" />
+              <col className="excel-col-code" />
+              <col className="excel-col-metric" />
+              <col className="excel-col-alt" />
+              <col className="excel-col-alt" />
+              <col className="excel-col-metric" />
+              <col className="excel-col-metric" />
+              <col className="excel-col-metric" />
+              <col className="excel-col-metric" />
+              <col className="excel-col-notes" />
+              <col className="excel-col-action" />
             </colgroup>
             <thead>
               <tr>
-                <th>
-                  <span title="Compatibility tanker code">C_tanker</span>
-                </th>
-                <th>
-                  <span title="Compatibility receiver code">C_receiver</span>
-                </th>
-                <th>
-                  <span title="Valid SRD tanker">v_srd_tanker</span>
-                </th>
-                <th>
-                  <span title="Valid SRD receiver">v_srd_receiver</span>
-                </th>
-                <th>
-                  <span title="Boom/Pod/BDA">boom_pod_BDA</span>
-                </th>
-                <th>
-                  <span title="Minimum altitude">min_alt</span>
-                </th>
-                <th>
-                  <span title="Maximum altitude">max_alt</span>
-                </th>
-                <th>
-                  <span title="Minimum airspeed">min_as_kcas</span>
-                </th>
-                <th>
-                  <span title="Maximum airspeed (KCAS)">max_as_kcas</span>
-                </th>
-                <th>
-                  <span title="Maximum airspeed (Mach)">max_as_m</span>
-                </th>
-                <th>
-                  <span title="Fuel flow rate">fuel_flow_rate</span>
-                </th>
-                <th>
-                  <span title="Notes">notes</span>
-                </th>
+                <th>Nr</th>
+                <th />
+                <th />
+                <th />
+                <th />
+                <th />
+                {RESULT_METRIC_COLUMNS.map((column) => (
+                  <th key={column.key}>{column.label}</th>
+                ))}
+                <th>Action</th>
               </tr>
             </thead>
             <tbody>
-              <tr>
-                <td data-label="c_tanker">{liveRow.c_tanker}</td>
-                <td data-label="c_receiver">{liveRow.c_receiver}</td>
-                <td data-label="v_srd_tanker">{liveRow.v_srd_tanker}</td>
-                <td data-label="v_srd_receiver">{liveRow.v_srd_receiver}</td>
-                <td data-label="boom_pod_BDA">{liveRow.boom_pod_BDA}</td>
-                <td data-label="min_alt">{liveRow.min_alt}</td>
-                <td data-label="max_alt">{liveRow.max_alt}</td>
-                <td data-label="min_as">{liveRow.min_as}</td>
-                <td data-label="max_as_kcas">{liveRow.max_as_kcas}</td>
-                <td data-label="max_as_m">{liveRow.max_as_m}</td>
-                <td data-label="fuel_flow_rate">{liveRow.fuel_flow_rate}</td>
-                <td data-label="notes">{liveRow.notes}</td>
-              </tr>
+              {resultItems.length > 0 ? (
+                resultItems.map((item, rowIndex) => (
+                  <Fragment
+                    key={`${item.result.c_tanker ?? 'ct'}-${item.result.c_receiver ?? 'cr'}-${rowIndex}`}
+                  >
+                    <tr>
+                      <td className="viewer-result-number" rowSpan={4}>
+                        {rowIndex + 1}
+                      </td>
+                      <td className="label-cell">Tanker Nation</td>
+                      <td className="label-cell">Tanker type</td>
+                      <td className="label-cell">Tanker model</td>
+                      <td className="label-cell">C_tanker</td>
+                      <td className="label-cell">V_srd_tanker</td>
+                      {RESULT_METRIC_COLUMNS.map((column) => (
+                        <td key={`tanker-label-${column.key}-${rowIndex}`} className="boom-gap-top" />
+                      ))}
+                      <td className="viewer-result-action" rowSpan={4}>
+                        <button
+                          className="btn ghost small"
+                          type="button"
+                          onClick={() => handleDeleteResult(rowIndex)}
+                          aria-label={`Delete result ${rowIndex + 1}`}
+                          title="Delete result"
+                        >
+                          ✕
+                        </button>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td>{item.query.tankerNation}</td>
+                      <td>{item.query.tankerType}</td>
+                      <td>{item.query.tankerModel}</td>
+                      <td>{formatResultValue(item.result.c_tanker)}</td>
+                      <td>{formatResultValue(item.result.v_srd_tanker)}</td>
+                      {RESULT_METRIC_COLUMNS.map((column) => (
+                        <td
+                          key={`tanker-value-${column.key}-${rowIndex}`}
+                          className="boom-gap-middle metric-value-cell"
+                        >
+                          {formatResultValue(item.result[column.key])}
+                        </td>
+                      ))}
+                    </tr>
+                    <tr>
+                      <td className="label-cell">Receiver nation</td>
+                      <td className="label-cell">Receiver type</td>
+                      <td className="label-cell">Receiver model</td>
+                      <td className="label-cell">C_receiver</td>
+                      <td className="label-cell">V_srd_receiver</td>
+                      {RESULT_METRIC_COLUMNS.map((column) => (
+                        <td
+                          key={`receiver-label-${column.key}-${rowIndex}`}
+                          className="boom-gap-middle"
+                        />
+                      ))}
+                    </tr>
+                    <tr>
+                      <td>{item.query.receiverNation}</td>
+                      <td>{item.query.receiverType}</td>
+                      <td>{item.query.receiverModel}</td>
+                      <td>{formatResultValue(item.result.c_receiver)}</td>
+                      <td>{formatResultValue(item.result.v_srd_receiver)}</td>
+                      {RESULT_METRIC_COLUMNS.map((column) => (
+                        <td key={`receiver-value-${column.key}-${rowIndex}`} className="boom-gap-bottom" />
+                      ))}
+                    </tr>
+                  </Fragment>
+                ))
+              ) : (
+                <Fragment>
+                  <tr>
+                    <td rowSpan={4} />
+                    <td className="label-cell">Tanker Nation</td>
+                    <td className="label-cell">Tanker type</td>
+                    <td className="label-cell">Tanker model</td>
+                    <td className="label-cell">C_tanker</td>
+                    <td className="label-cell">V_srd_tanker</td>
+                    {RESULT_METRIC_COLUMNS.map((column) => (
+                      <td key={`empty-tanker-label-${column.key}`} className="boom-gap-top" />
+                    ))}
+                    <td rowSpan={4} />
+                  </tr>
+                  <tr>
+                    <td />
+                    <td />
+                    <td />
+                    <td />
+                    <td />
+                    {RESULT_METRIC_COLUMNS.map((column) => (
+                      <td key={`empty-tanker-value-${column.key}`} className="boom-gap-middle" />
+                    ))}
+                  </tr>
+                  <tr>
+                    <td className="label-cell">Receiver nation</td>
+                    <td className="label-cell">Receiver type</td>
+                    <td className="label-cell">Receiver model</td>
+                    <td className="label-cell">C_receiver</td>
+                    <td className="label-cell">V_srd_receiver</td>
+                    {RESULT_METRIC_COLUMNS.map((column) => (
+                      <td key={`empty-receiver-label-${column.key}`} className="boom-gap-middle" />
+                    ))}
+                  </tr>
+                  <tr>
+                    <td />
+                    <td />
+                    <td />
+                    <td />
+                    <td />
+                    {RESULT_METRIC_COLUMNS.map((column) => (
+                      <td key={`empty-receiver-value-${column.key}`} className="boom-gap-bottom" />
+                    ))}
+                  </tr>
+                </Fragment>
+              )}
             </tbody>
           </table>
         </div>
+        {resultItems.length === 0 && (
+          <p className="viewer-intro">
+            {hasSearched
+              ? 'No results found for this combination.'
+              : 'Fill in the selection and click Search.'}
+          </p>
+        )}
       </section>
     </div>
   )
 }
-
-

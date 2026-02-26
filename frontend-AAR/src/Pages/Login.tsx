@@ -22,21 +22,21 @@ const ROLE_DETAILS: Record<
 > = {
   admin: {
     label: 'Admin',
-    intro: 'Je krijgt toegang tot beheer en rapportages.',
-    highlight: 'Verifieer je account om verder te gaan.',
-    quick: 'Prioriteer accounts, rollen en audits.',
+    intro: 'You get access to administration and reporting.',
+    highlight: 'Verify your account to continue.',
+    quick: 'Prioritize accounts, roles, and audits.',
   },
   srd_holder: {
     label: 'SRD Holder',
-    intro: 'Je krijgt toegang tot technische flows en tooling.',
-    highlight: 'Log in om je workbench te openen.',
-    quick: "Werk aan tickets, risico's en releases.",
+    intro: 'You get access to technical workflows and tooling.',
+    highlight: 'Sign in to open your workbench.',
+    quick: 'Work on tickets, risks, and releases.',
   },
   viewer: {
-    label: 'Vieuwer',
-    intro: 'Je hebt directe toegang tot de planning.',
-    highlight: 'Geen login nodig voor viewers.',
-    quick: 'Start direct met inplannen.',
+    label: 'Viewer',
+    intro: 'You get access to the viewer environment.',
+    highlight: 'Sign in to open the viewer.',
+    quick: 'Search and review compatibility results.',
   },
 }
 
@@ -52,10 +52,10 @@ const DEMO_ACCOUNTS: Record<Role, { username: string; password: string } | null>
   {
     admin: { username: 'admin', password: '12345' },
     srd_holder: { username: 'srd_holder', password: '12345' },
-    viewer: null,
+    viewer: { username: 'viewer', password: '12345' },
   }
 
-// Controleert of demo-gegevens overeenkomen met de geselecteerde rol.
+// Checks whether the demo credentials match the selected role.
 function isDemoMatch(credentials: LoginCredentials) {
   const demo = DEMO_ACCOUNTS[credentials.role]
   if (!demo) return false
@@ -65,17 +65,17 @@ function isDemoMatch(credentials: LoginCredentials) {
   )
 }
 
-// Authenticeer een gebruiker (placeholder voor DB/API-koppeling).
+// Authenticates a user (placeholder for the future DB/API integration).
 async function authenticateUser(credentials: LoginCredentials): Promise<AuthResult> {
-  // TODO: vervang dit met een API call zodra de database beschikbaar is.
-  // Bijvoorbeeld: return fetch('/api/auth/login', { method: 'POST', body: JSON.stringify(credentials) })
+  // TODO: replace this with an API call when the database is available.
+  // Example: return fetch('/api/auth/login', { method: 'POST', body: JSON.stringify(credentials) })
   if (!isDemoMatch(credentials)) {
-    return { ok: false, message: 'Onjuiste demo-gegevens.' }
+    return { ok: false, message: 'Invalid demo credentials.' }
   }
   return { ok: true }
 }
 
-// Login scherm met rolkeuze en doorstuur naar de juiste omgeving.
+// Login screen with role selection and redirect to the matching dashboard.
 export default function Login() {
   const [step, setStep] = useState<Step>('select')
   const [activeRole, setActiveRole] = useState<Role | null>(null)
@@ -83,18 +83,14 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
 
-  // Kiest een rol en bepaalt of er eerst ingelogd moet worden.
+  // Selects a role and moves the user to the login step.
   const handleRoleSelect = (role: Role) => {
     setActiveRole(role)
     setLoginError('')
-    if (role === 'viewer') {
-      setStep('dashboard')
-    } else {
-      setStep('login')
-    }
+    setStep('login')
   }
 
-  // Herstelt het scherm naar de startstatus.
+  // Resets the flow to the initial selection state.
   const handleReset = () => {
     setStep('select')
     setActiveRole(null)
@@ -103,7 +99,7 @@ export default function Login() {
     setLoginError('')
   }
 
-  // Verwerkt de login en is het haakpunt voor DB-authenticatie.
+  // Handles form submission and is the hook for DB-based authentication.
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!activeRole) return
@@ -114,7 +110,7 @@ export default function Login() {
       role: activeRole,
     })
     if (!result.ok) {
-      setLoginError(result.message ?? 'Inloggen mislukt.')
+      setLoginError(result.message ?? 'Login failed.')
       return
     }
     setStep('dashboard')
@@ -164,27 +160,27 @@ export default function Login() {
                 <div className="step-top">
                   <div>
                     <span className="role-pill">{currentRole.label}</span>
-                    <h2>Inloggen als {currentRole.label}</h2>
+                    <h2>Sign in as {currentRole.label}</h2>
                     <p className="muted">{currentRole.highlight}</p>
                   </div>
                   <button className="btn ghost" type="button" onClick={handleReset}>
-                    Andere rol
+                    Different role
                   </button>
                 </div>
                 <form className="login-form" onSubmit={handleLogin}>
                   <label className="input-group">
-                    Gebruikersnaam
+                    Username
                     <input
                       type="text"
                       value={username}
                       onChange={(event) => setUsername(event.target.value)}
-                      placeholder="naam@bedrijf.nl"
+                      placeholder="name"
                       autoComplete="username"
                       required
                     />
                   </label>
                   <label className="input-group">
-                    Wachtwoord
+                    Password
                     <input
                       type="password"
                       value={password}
@@ -203,10 +199,10 @@ export default function Login() {
                     </span>
                     <div className="button-row">
                       <button className="btn ghost" type="button" onClick={handleReset}>
-                        Annuleren
+                        Cancel
                       </button>
                       <button className="btn primary" type="submit">
-                        Inloggen
+                        Sign in
                       </button>
                     </div>
                   </div>

@@ -263,6 +263,108 @@
   padding: 0.45rem 0.55rem;
 }
 
+.viewer-excel-wrap {
+  overflow-x: auto;
+  border-radius: 0;
+  border: 1px solid #000000;
+  background: #ffffff;
+}
+
+.viewer-excel-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+}
+
+.viewer-excel-table th,
+.viewer-excel-table td {
+  border: 1px solid #000000;
+  padding: 0.25rem 0.4rem;
+  font-size: 0.78rem;
+  color: #000000;
+  white-space: nowrap;
+  background: #ffffff;
+  height: 22px;
+  vertical-align: middle;
+}
+
+.viewer-excel-table thead th {
+  background: #ffffff;
+  font-weight: 500;
+  text-align: left;
+}
+
+.viewer-excel-table .label-cell {
+  font-weight: 500;
+}
+
+.viewer-excel-table td.boom-gap-top {
+  border-bottom-color: transparent;
+}
+
+.viewer-excel-table td.boom-gap-middle {
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+}
+
+.viewer-excel-table td.boom-gap-bottom {
+  border-top-color: transparent;
+}
+
+.viewer-excel-table td.metric-value-cell {
+  text-align: center;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.viewer-excel-table .excel-col-wide {
+  width: 135px;
+}
+
+.viewer-excel-table .excel-col-number {
+  width: 40px;
+}
+
+.viewer-excel-table .excel-col-code {
+  width: 92px;
+}
+
+.viewer-excel-table .excel-col-metric {
+  width: 100px;
+}
+
+.viewer-excel-table .excel-col-alt {
+  width: 72px;
+}
+
+.viewer-excel-table .excel-col-action {
+  width: 64px;
+}
+
+.viewer-excel-table .excel-col-notes {
+  width: 72px;
+}
+
+.viewer-excel-table .viewer-result-number,
+.viewer-excel-table .viewer-result-action {
+  text-align: center;
+  vertical-align: middle;
+}
+
+.viewer-result-action .btn.small {
+  padding: 0.15rem 0.35rem;
+  font-size: 0.72rem;
+  line-height: 1.1;
+  color: #b91c1c;
+  border-color: #fca5a5;
+}
+
+.viewer-result-action .btn.small:hover {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
 .status-tag {
   display: inline-flex;
   align-items: center;
