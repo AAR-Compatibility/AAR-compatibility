@@ -1,4 +1,5 @@
 import { getStoredAuthToken } from './authService'
+import { buildApiUrl } from './api'
 
 export type ViewerPayload = {
   tankerNation: string
@@ -78,7 +79,7 @@ async function getErrorMessage(response: Response, fallback: string) {
 
 // Loads all viewer filter options for tanker and receiver.
 export async function fetchViewerOptions(): Promise<ViewerOptionsResponse> {
-  const response = await fetch('/api/viewer/options', {
+  const response = await fetch(buildApiUrl('/viewer/options'), {
     headers: buildHeaders(),
   })
 
@@ -93,7 +94,7 @@ export async function fetchViewerOptions(): Promise<ViewerOptionsResponse> {
 export async function searchViewer(
   payload: ViewerPayload,
 ): Promise<ViewerSearchResponse> {
-  const response = await fetch('/api/viewer/search', {
+  const response = await fetch(buildApiUrl('/viewer/search'), {
     method: 'POST',
     headers: buildHeaders(true),
     body: JSON.stringify(payload),
@@ -110,7 +111,7 @@ export async function searchViewer(
 export async function submitViewerRequest(
   payload: ViewerPayload,
 ): Promise<ViewerResponse> {
-  const response = await fetch('/api/viewer/submit', {
+  const response = await fetch(buildApiUrl('/viewer/submit'), {
     method: 'POST',
     headers: buildHeaders(true),
     body: JSON.stringify(payload),

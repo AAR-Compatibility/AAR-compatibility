@@ -1,3 +1,5 @@
+import { buildApiUrl } from './api'
+
 export type AuthUser = {
   id: number | string
   name: string
@@ -59,7 +61,7 @@ export function clearAuthToken() {
 export async function loginWithCredentials(
   payload: LoginPayload,
 ): Promise<LoginResponse> {
-  const response = await fetch('/api/auth/login', {
+  const response = await fetch(buildApiUrl('/auth/login'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -80,7 +82,7 @@ export async function fetchCurrentUser(
     throw new Error('No token available.')
   }
 
-  const response = await fetch('/api/auth/me', {
+  const response = await fetch(buildApiUrl('/auth/me'), {
     headers: { Authorization: `Bearer ${token}` },
   })
 
