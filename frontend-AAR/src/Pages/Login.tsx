@@ -1,10 +1,18 @@
-﻿import { useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent } from 'react'
 import Header from '../Components/Layout/Header'
 import Footer from '../Components/Layout/Footer'
 import AdminPage from './Admin'
 import SRD_holderPage from './SRD_holder'
 import ViewerPage from './Viewer'
 import PictureAAR from '../Assets/Picture AAR.jpg'
+import {
+  clearAuthToken,
+  fetchCurrentUser,
+  getStoredAuthToken,
+  loginWithCredentials,
+  storeAuthToken,
+  type AuthUser,
+} from '../Services/authService'
 import '../Styles/login.css'
 
 type Role = 'admin' | 'srd_holder' | 'viewer'
@@ -41,47 +49,88 @@ const ROLE_DETAILS: Record<
 }
 
 type LoginCredentials = {
-  username: string
+  email: string
   password: string
-  role: Role
 }
 
-type AuthResult = { ok: boolean; message?: string }
+type AuthResult = { ok: boolean; message?: string; user?: AuthUser }
 
-const DEMO_ACCOUNTS: Record<Role, { username: string; password: string } | null> =
-  {
-    admin: { username: 'admin', password: '12345' },
-    srd_holder: { username: 'srd_holder', password: '12345' },
-    viewer: { username: 'viewer', password: '12345' },
+// Maps backend role values to valid frontend roles.
+function normalizeRole(role: string): Role | null {
+  const normalized = role.trim().toLowerCase()
+  if (
+    normalized !== 'admin' &&
+    normalized !== 'srd_holder' &&
+    normalized !== 'viewer'
+  ) {
+    return null
   }
-
-// Checks whether the demo credentials match the selected role.
-function isDemoMatch(credentials: LoginCredentials) {
-  const demo = DEMO_ACCOUNTS[credentials.role]
-  if (!demo) return false
-  return (
-    credentials.username === demo.username &&
-    credentials.password === demo.password
-  )
+  return normalized
 }
 
-// Authenticates a user (placeholder for the future DB/API integration).
-async function authenticateUser(credentials: LoginCredentials): Promise<AuthResult> {
-  // TODO: replace this with an API call when the database is available.
-  // Example: return fetch('/api/auth/login', { method: 'POST', body: JSON.stringify(credentials) })
-  if (!isDemoMatch(credentials)) {
-    return { ok: false, message: 'Invalid demo credentials.' }
+// Logs in through the backend and returns user data.
+async function authenticateUser(
+  credentials: LoginCredentials,
+): Promise<AuthResult> {
+  try {
+    const data = await loginWithCredentials(credentials)
+    storeAuthToken(data.token)
+    return { ok: true, user: data.user }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : 'Login failed unexpectedly.'
+    return { ok: false, message }
   }
-  return { ok: true }
 }
 
 // Login screen with role selection and redirect to the matching dashboard.
 export default function Login() {
   const [step, setStep] = useState<Step>('select')
   const [activeRole, setActiveRole] = useState<Role | null>(null)
-  const [username, setUsername] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
+  const [isRestoringSession, setIsRestoringSession] = useState(true)
+
+  // Restores an active session from the stored JWT token.
+  useEffect(() => {
+    const token = getStoredAuthToken()
+    if (!token) {
+      setIsRestoringSession(false)
+      return
+    }
+
+    let cancelled = false
+
+    const restoreSession = async () => {
+      try {
+        const user = await fetchCurrentUser(token)
+        const restoredRole = normalizeRole(user.role)
+
+        if (!restoredRole) {
+          clearAuthToken()
+          return
+        }
+
+        if (!cancelled) {
+          setActiveRole(restoredRole)
+          setStep('dashboard')
+        }
+      } catch {
+        clearAuthToken()
+      } finally {
+        if (!cancelled) {
+          setIsRestoringSession(false)
+        }
+      }
+    }
+
+    void restoreSession()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Selects a role and moves the user to the login step.
   const handleRoleSelect = (role: Role) => {
@@ -92,39 +141,69 @@ export default function Login() {
 
   // Resets the flow to the initial selection state.
   const handleReset = () => {
+    clearAuthToken()
     setStep('select')
     setActiveRole(null)
-    setUsername('')
+    setEmail('')
     setPassword('')
     setLoginError('')
   }
 
-  // Handles form submission and is the hook for DB-based authentication.
+  // Sends login to the backend and validates the selected role.
   const handleLogin = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     if (!activeRole) return
+
     setLoginError('')
     const result = await authenticateUser({
-      username,
+      email,
       password,
-      role: activeRole,
     })
+
     if (!result.ok) {
       setLoginError(result.message ?? 'Login failed.')
       return
     }
+
+    if (!result.user) {
+      setLoginError('No user data returned from backend.')
+      clearAuthToken()
+      return
+    }
+
+    const backendRole = normalizeRole(result.user.role)
+    if (!backendRole) {
+      setLoginError('Unknown role returned by backend.')
+      clearAuthToken()
+      return
+    }
+
+    if (backendRole !== activeRole) {
+      setLoginError(`This account belongs to the "${backendRole}" role.`)
+      clearAuthToken()
+      return
+    }
+
+    setActiveRole(backendRole)
     setStep('dashboard')
+    setEmail('')
+    setPassword('')
   }
 
   const currentRole = activeRole ? ROLE_DETAILS[activeRole] : null
   const showRolePage = step === 'dashboard' && activeRole !== null
-  const demoAccount = activeRole ? DEMO_ACCOUNTS[activeRole] : null
 
   return (
     <div className="login-shell">
       <Header />
       <main className={showRolePage ? 'role-main' : 'login-main'}>
-        {showRolePage ? (
+        {isRestoringSession ? (
+          <section className="login-card" aria-live="polite">
+            <div className="step-panel">
+              <p className="muted">Restoring session...</p>
+            </div>
+          </section>
+        ) : showRolePage ? (
           activeRole === 'admin' ? (
             <AdminPage onLogout={handleReset} />
           ) : activeRole === 'srd_holder' ? (
@@ -169,13 +248,13 @@ export default function Login() {
                 </div>
                 <form className="login-form" onSubmit={handleLogin}>
                   <label className="input-group">
-                    Username
+                    Email
                     <input
-                      type="text"
-                      value={username}
-                      onChange={(event) => setUsername(event.target.value)}
-                      placeholder="name"
-                      autoComplete="username"
+                      type="email"
+                      value={email}
+                      onChange={(event) => setEmail(event.target.value)}
+                      placeholder="name@domain.com"
+                      autoComplete="email"
                       required
                     />
                   </label>
@@ -192,11 +271,7 @@ export default function Login() {
                   </label>
                   {loginError && <p className="login-error">{loginError}</p>}
                   <div className="form-footer">
-                    <span className="muted">
-                      Demo {currentRole.label}:{' '}
-                      <strong>{demoAccount?.username}</strong> /{' '}
-                      <strong>{demoAccount?.password}</strong>
-                    </span>
+                    <span className="muted">{currentRole.intro}</span>
                     <div className="button-row">
                       <button className="btn ghost" type="button" onClick={handleReset}>
                         Cancel
@@ -216,5 +291,3 @@ export default function Login() {
     </div>
   )
 }
-
-

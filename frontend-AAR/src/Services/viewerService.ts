@@ -1,3 +1,5 @@
+import { getStoredAuthToken } from './authService'
+
 export type ViewerPayload = {
   tankerNation: string
   tankerType: string
@@ -48,6 +50,22 @@ type ViewerResponse = {
   message?: string
 }
 
+// Builds headers and adds Authorization when a token exists.
+function buildHeaders(includeJsonContentType = false): HeadersInit {
+  const token = getStoredAuthToken()
+  const headers: Record<string, string> = {}
+
+  if (includeJsonContentType) {
+    headers['Content-Type'] = 'application/json'
+  }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+
+  return headers
+}
+
 // Gets an error message from the response, or uses a fallback.
 async function getErrorMessage(response: Response, fallback: string) {
   try {
@@ -60,7 +78,9 @@ async function getErrorMessage(response: Response, fallback: string) {
 
 // Loads all viewer filter options for tanker and receiver.
 export async function fetchViewerOptions(): Promise<ViewerOptionsResponse> {
-  const response = await fetch('/api/viewer/options')
+  const response = await fetch('/api/viewer/options', {
+    headers: buildHeaders(),
+  })
 
   if (!response.ok) {
     throw new Error(await getErrorMessage(response, 'Failed to load options.'))
@@ -75,7 +95,7 @@ export async function searchViewer(
 ): Promise<ViewerSearchResponse> {
   const response = await fetch('/api/viewer/search', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: buildHeaders(true),
     body: JSON.stringify(payload),
   })
 
@@ -92,7 +112,7 @@ export async function submitViewerRequest(
 ): Promise<ViewerResponse> {
   const response = await fetch('/api/viewer/submit', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: buildHeaders(true),
     body: JSON.stringify(payload),
   })
 
