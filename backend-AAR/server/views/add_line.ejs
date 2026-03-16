@@ -1,0 +1,28 @@
+<form action="/change/add" method="POST">
+  <h3>Tanker Info</h3>
+  <input name="tankerNation" placeholder="Tanker Nation" required>
+  <input name="tankerType" placeholder="Tanker Type" required>
+  <input name="tankerModel" placeholder="Tanker Model" required>
+
+  <h3>Receiver Info</h3>
+  <input name="receiverNation" placeholder="Receiver Nation" required>
+  <input name="receiverType" placeholder="Receiver Type" required>
+  <input name="receiverModel" placeholder="Receiver Model" required>
+
+  <h3>Specifications</h3>
+  <!-- Repeat these fields for each specification -->
+  <input name="specifications[0][c_tanker]" placeholder="c_tanker" required>
+  <input name="specifications[0][c_receiver]" placeholder="c_receiver" required>
+  <input name="specifications[0][v_srd_tanker]" placeholder="v_srd_tanker" required>
+  <input name="specifications[0][v_srd_receiver]" placeholder="v_srd_receiver" required>
+  <input name="specifications[0][boom_pod_bda]" placeholder="boom_pod_bda" required>
+  <input name="specifications[0][min_alt]" placeholder="min_alt" type="number" required>
+  <input name="specifications[0][max_alt]" placeholder="max_alt" type="number" required>
+  <input name="specifications[0][min_as]" placeholder="min_as" type="number" required>
+  <input name="specifications[0][max_as_kcas]" placeholder="max_as_kcas" type="number" required>
+  <input name="specifications[0][max_as_m]" placeholder="max_as_m" type="number" required>
+  <input name="specifications[0][fuel_flow_rate]" placeholder="fuel_flow_rate" type="number" required>
+  <input name="specifications[0][notes]" placeholder="notes">
+
+  <button type="submit">Add Compatibility + Specs</button>
+</form>

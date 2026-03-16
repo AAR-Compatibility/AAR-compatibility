@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>SRD Search</title>
+  <style>
+    table {
+      border-collapse: collapse;
+      width: 100%;
+    }
+    th, td {
+      padding: 10px;
+      border: 1px solid #ccc;
+    }
+    th {
+      background: #f4f4f4;
+    }
+  </style>
+</head>
+<body>
+
+<h1>SRD Search</h1>
+
+<form action="/srd/search" method="GET">
+    <label>Nation:</label>
+    <input type="text" name="nation" required>
+    <button type="submit">Search</button>
+</form>
+
+<% if (results && results.length > 0) { %>
+<h2>Results for <%= nation %></h2>
+
+<table>
+    <tr>
+        <th>Tanker Nation</th>
+        <th>Tanker Type</th>
+        <th>Tanker Model</th>
+        <th>Receiver Nation</th>
+        <th>Receiver Type</th>
+        <th>Receiver Model</th>
+        <th>SRD version tanker</th>
+        <th>SRD version Receiver</th>
+        <th>Boom or Pod</th>
+        <th>min alt</th>
+        <th>max alt</th>
+        <th>min as</th>
+        <th>max as (KCAS)</th>
+        <th>max as (M)</th>
+        <th>Fuel flow rate</th>
+        <th>Notes</th>
+    </tr>
+
+    <% results.forEach(row => { %>
+        <tr>
+            <pre><%= JSON.stringify(row) %></pre>
+
+            
+            <td><%= row.tanker_nation %></td>
+            <td><%= row.tanker_type %></td>
+            <td><%= row.tanker_model %></td>
+            <td><%= row.receiver_nation %></td>
+            <td><%= row.receiver_type %></td>
+            <td><%= row.receiver_model %></td>
+            <td><%= row.v_srd_tanker %></td>
+            <td><%= row.v_srd_receiver %></td>
+            <td><%= row.boom_pod_bda %></td>
+            <td><%= row.min_alt %></td>
+            <td><%= row.max_alt %></td>
+            <td><%= row.min_as %></td>
+            <td><%= row.max_as_kcas %></td>
+            <td><%= row.max_as_m %></td>
+            <td><%= row.fuel_flow_rate %></td>
+            <td><%= row.notes %></td>
+            <td>
+                <form action="/srd/delete/<%= row.id %>" method="POST" onsubmit="return confirm('Are you sure?');">
+                <button type="submit">Delete</button>
+                </form>
+            </td>
+        </tr>
+    <% }) %>
+</table>
+<% } %>
+
+</body>
+</html>
