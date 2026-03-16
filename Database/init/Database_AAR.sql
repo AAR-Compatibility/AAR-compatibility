@@ -112,13 +112,13 @@ INSERT INTO "User_ID" ("name","email","RolRolID","password_hash")
 VALUES
 ('Admin','admin@japcc.com',
  (SELECT "RolID" FROM "Rol" WHERE "name"='admin'),
- '$2b$10$egRYV7eGB6EDFF7JGIsvzOUbXlz3ta2nO8LrWyvXhn4b3pu6gR4hS'),
+ '$2b$10$ABRUZICquliAdwpWxvAgOudEO7vN05NIga1/LgoE1utgCvqd8KxA6'),
 
 ('SRD_Holder','srd@mindef.com',
  (SELECT "RolID" FROM "Rol" WHERE "name"='srd_holder'),
- '$2b$10$egRYV7eGB6EDFF7JGIsvzOUbXlz3ta2nO8LrWyvXhn4b3pu6gR4hS'),
+ '$2b$10$ABRUZICquliAdwpWxvAgOudEO7vN05NIga1/LgoE1utgCvqd8KxA6'),
 
 ('Viewer','viewer@japcc.com',
  (SELECT "RolID" FROM "Rol" WHERE "name"='viewer'),
- '$2b$10$egRYV7eGB6EDFF7JGIsvzOUbXlz3ta2nO8LrWyvXhn4b3pu6gR4hS')
+ '$2b$10$ABRUZICquliAdwpWxvAgOudEO7vN05NIga1/LgoE1utgCvqd8KxA6')
 ON CONFLICT ("email") DO NOTHING;

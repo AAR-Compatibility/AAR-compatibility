@@ -1,5 +1,8 @@
 # AAR-compatibility
+This application lets users sign in and check AAR compatibility data for different aircraft and tanker combinations.
 The application for AAR-compatibility serves as an easy method for checking specifications between certain AAR combinations
+
+For deployed login to work, the frontend must call the backend through a real API base URL and the backend must allow that frontend origin. The local Vite proxy only works during `npm run dev`.
 
 ## Which software do you need?
 For the software to run locally there are couple of softwares you need to install.
@@ -134,4 +137,22 @@ See [database README](Database/README.md) for database details.
 # For login to work with jwt
 
 Install: npm i pg dotenv jsonwebtoken bcryptjs
+
+On GitHub/Linux deployments, login failed because `docker-compose.yml` mounted `./database/init` while this repository stores the SQL seed in `./Database/init`. Linux treats those as different folders, so the user and role seed data was never loaded.
+
+For separate frontend deployments, set `VITE_API_BASE_URL` to your backend URL plus `/api`, for example `https://your-backend.example.com/api`.
+For cross-origin requests, set backend `ALLOWED_ORIGINS` to the frontend origin, for example `https://your-frontend.example.com`.
+
+# Front-end Login credentials
+Admin
+Email: admin@japcc.com
+Password: 12345
+
+SRD Holder
+Email: srd@mindef.com
+Password: 12345
+
+Viewer
+Email: viewer@japcc.com
+Password: 12345
 
