@@ -5,6 +5,7 @@ exports.getsrdByNation = async (nation) => {
 
   const query = `
     SELECT
+      c.id AS id,
       t.nation AS tanker_nation,
       t.type AS tanker_type,
       t.model AS tanker_model,
@@ -34,4 +35,10 @@ exports.getsrdByNation = async (nation) => {
   const result = await db.query(query, [nation]);
 
   return result.rows;
+};
+
+
+exports.deleteById = async (id) => {
+    const query = `DELETE FROM compatibility WHERE id = $1`;
+    await db.query(query, [id]);
 };

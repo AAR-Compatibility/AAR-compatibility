@@ -51,6 +51,9 @@
 
     <% results.forEach(row => { %>
         <tr>
+            <pre><%= JSON.stringify(row) %></pre>
+
+            
             <td><%= row.tanker_nation %></td>
             <td><%= row.tanker_type %></td>
             <td><%= row.tanker_model %></td>
@@ -68,7 +71,7 @@
             <td><%= row.fuel_flow_rate %></td>
             <td><%= row.notes %></td>
             <td>
-                <form action="/srd/delete/<%= row.compatibility_id %>" method="POST" onsubmit="return confirm('Are you sure?');">
+                <form action="/srd/delete/<%= row.id %>" method="POST" onsubmit="return confirm('Are you sure?');">
                 <button type="submit">Delete</button>
                 </form>
             </td>

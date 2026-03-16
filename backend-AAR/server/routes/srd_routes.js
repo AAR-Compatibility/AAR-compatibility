@@ -6,4 +6,7 @@ const srdController = require('../controllers/srd_controller');
 router.get('/', srdController.searchsrd);
 router.get('/search', srdController.getsrdByNation);
 
+// Delete a specific compatibility row by id
+router.post("/delete/:id", srdController.deletesrd);
+
 module.exports = router;

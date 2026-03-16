@@ -20,3 +20,15 @@ exports.getsrdByNation = async (req, res) => {
   }
 };
 
+exports.deletesrd = async (req, res) => {
+    try {
+        const id = req.params.id;
+        await srdService.deletesrd(id);
+
+        // Redirect back to the same page after deletion
+        res.redirect("/srd");
+    } catch (error) {
+        res.status(500).send(error.message);
+    }
+};
+
