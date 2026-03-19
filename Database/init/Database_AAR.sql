@@ -91,7 +91,7 @@ CREATE TABLE IF NOT EXISTS "Rol" (
 
 ----------------------------------------------------
 -- Users table
-CREATE TABLE IF NOT EXISTS "User_ID" (
+CREATE TABLE IF NOT EXISTS "User" (
   "UserID" SERIAL PRIMARY KEY,
   "name" VARCHAR(255) NOT NULL,
   "email" VARCHAR(255) NOT NULL UNIQUE,
@@ -108,7 +108,7 @@ ON CONFLICT ("name") DO NOTHING;
 ----------------------------------------------------
 -- Insert users with hash
 
-INSERT INTO "User_ID" ("name","email","RolRolID","password_hash")
+INSERT INTO "User" ("name","email","RolRolID","password_hash")
 VALUES
 ('Admin','admin@japcc.com',
  (SELECT "RolID" FROM "Rol" WHERE "name"='admin'),

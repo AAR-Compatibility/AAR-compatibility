@@ -1,9 +1,13 @@
+﻿// Handles role-based sign-in and supports browser credential autofill/save.
 import { useEffect, useState, type FormEvent } from 'react'
 import Header from '../Components/Layout/Header'
 import Footer from '../Components/Layout/Footer'
 import AdminPage from './Admin'
 import SRD_holderPage from './SRD_holder'
+import TankersPage from './Tankers'
+import ReceiversPage from './Receivers'
 import ViewerPage from './Viewer'
+import CreateAccountPage from './CreateAccount'
 import PictureAAR from '../Assets/Picture AAR.jpg'
 import {
   clearAuthToken,
@@ -16,7 +20,8 @@ import {
 import '../Styles/login.css'
 
 type Role = 'admin' | 'srd_holder' | 'viewer'
-type Step = 'select' | 'login' | 'dashboard'
+type Step = 'select' | 'login' | 'dashboard' | 'create-account'
+type SRDView = 'home' | 'tankers' | 'receivers'
 
 const ROLE_OPTIONS: Array<{ key: Role; title: string }> = [
   { key: 'admin', title: 'Admin' },
@@ -87,6 +92,8 @@ async function authenticateUser(
 export default function Login() {
   const [step, setStep] = useState<Step>('select')
   const [activeRole, setActiveRole] = useState<Role | null>(null)
+  const [srdView, setSrdView] = useState<SRDView>('home')
+  const [viewerReturnRole, setViewerReturnRole] = useState<Exclude<Role, 'viewer'> | null>(null)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -114,6 +121,9 @@ export default function Login() {
 
         if (!cancelled) {
           setActiveRole(restoredRole)
+          if (restoredRole === 'srd_holder') {
+            setSrdView('home')
+          }
           setStep('dashboard')
         }
       } catch {
@@ -144,9 +154,50 @@ export default function Login() {
     clearAuthToken()
     setStep('select')
     setActiveRole(null)
+    setSrdView('home')
+    setViewerReturnRole(null)
     setEmail('')
     setPassword('')
     setLoginError('')
+  }
+
+  // Opens one of the role dashboards from in-app quick actions.
+  const handleOpenDashboard = (role: Role) => {
+    if (role === 'viewer' && activeRole && activeRole !== 'viewer') {
+      setViewerReturnRole(activeRole)
+    }
+    if (role !== 'viewer') {
+      setViewerReturnRole(null)
+    }
+    if (role === 'srd_holder') {
+      setSrdView('home')
+    }
+    setActiveRole(role)
+    setStep('dashboard')
+    setLoginError('')
+  }
+
+  const handleOpenSrdView = (nextView: SRDView) => {
+    setActiveRole('srd_holder')
+    setSrdView(nextView)
+    setStep('dashboard')
+    setLoginError('')
+  }
+
+  // Opens the dedicated admin page to create a new account.
+  const handleCreateAccount = () => {
+    if (activeRole !== 'admin') return
+    setStep('create-account')
+    setLoginError('')
+  }
+
+  // Returns to the active dashboard, or falls back to role selection.
+  const handleBackFromCreateAccount = () => {
+    if (activeRole) {
+      setStep('dashboard')
+      return
+    }
+    setStep('select')
   }
 
   // Sends login to the backend and validates the selected role.
@@ -185,6 +236,9 @@ export default function Login() {
     }
 
     setActiveRole(backendRole)
+    if (backendRole === 'srd_holder') {
+      setSrdView('home')
+    }
     setStep('dashboard')
     setEmail('')
     setPassword('')
@@ -196,20 +250,60 @@ export default function Login() {
   return (
     <div className="login-shell">
       <Header />
-      <main className={showRolePage ? 'role-main' : 'login-main'}>
+      <main className={showRolePage || step === 'create-account' ? 'role-main' : 'login-main'}>
         {isRestoringSession ? (
           <section className="login-card" aria-live="polite">
             <div className="step-panel">
               <p className="muted">Restoring session...</p>
             </div>
           </section>
+        ) : step === 'create-account' ? (
+          <CreateAccountPage onBack={handleBackFromCreateAccount} />
         ) : showRolePage ? (
           activeRole === 'admin' ? (
-            <AdminPage onLogout={handleReset} />
+            <AdminPage
+              onLogout={handleReset}
+              onOpenViewer={() => handleOpenDashboard('viewer')}
+              onCreateAccount={handleCreateAccount}
+            />
           ) : activeRole === 'srd_holder' ? (
-            <SRD_holderPage onLogout={handleReset} />
+            srdView === 'tankers' ? (
+              <TankersPage
+                onLogout={handleReset}
+                onOpenViewer={() => handleOpenDashboard('viewer')}
+                onOpenMySrd={() => handleOpenSrdView('home')}
+              />
+            ) : srdView === 'receivers' ? (
+              <ReceiversPage
+                onLogout={handleReset}
+                onOpenViewer={() => handleOpenDashboard('viewer')}
+                onOpenMySrd={() => handleOpenSrdView('home')}
+              />
+            ) : (
+              <SRD_holderPage
+                onLogout={handleReset}
+                onOpenViewer={() => handleOpenDashboard('viewer')}
+                onOpenMySrd={() => handleOpenSrdView('home')}
+                onOpenTankers={() => handleOpenSrdView('tankers')}
+                onOpenReceivers={() => handleOpenSrdView('receivers')}
+              />
+            )
           ) : (
-            <ViewerPage onLogout={handleReset} />
+            <ViewerPage
+              onLogout={handleReset}
+              onBack={
+                viewerReturnRole
+                  ? () => handleOpenDashboard(viewerReturnRole)
+                  : undefined
+              }
+              backLabel={
+                viewerReturnRole === 'admin'
+                  ? 'Back to Admin'
+                  : viewerReturnRole === 'srd_holder'
+                    ? 'Back to SRD Holder'
+                    : 'Back'
+              }
+            />
           )
         ) : (
           <section className="login-card" aria-live="polite">
@@ -231,6 +325,11 @@ export default function Login() {
                 <div className="login-image" aria-hidden="true">
                   <img src={PictureAAR} alt="" />
                 </div>
+                <p className="welcome-copy">
+                  Welcome to the AAR Technical Compatibility Matrix
+                  <br />
+                  A structured web application for submitting, reviewing, and consulting compatibility changes and related technical data in a controlled and traceable way. Designed to improve efficiency, consistency, and role-based collaboration within the JAPCC AAR process.
+                </p>
               </div>
             )}
 
@@ -246,21 +345,25 @@ export default function Login() {
                     Different role
                   </button>
                 </div>
-                <form className="login-form" onSubmit={handleLogin}>
+                <form className="login-form" onSubmit={handleLogin} autoComplete="on">
                   <label className="input-group">
                     Email
                     <input
+                      id="login-email"
+                      name="email"
                       type="email"
                       value={email}
                       onChange={(event) => setEmail(event.target.value)}
                       placeholder="name@domain.com"
-                      autoComplete="email"
+                      autoComplete="username"
                       required
                     />
                   </label>
                   <label className="input-group">
                     Password
                     <input
+                      id="login-password"
+                      name="password"
                       type="password"
                       value={password}
                       onChange={(event) => setPassword(event.target.value)}

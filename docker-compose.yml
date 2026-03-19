@@ -30,6 +30,20 @@ services:
     depends_on:
       - db
 
+  frontend:
+    build:
+      context: ./frontend-AAR
+      dockerfile: Dockerfile
+    container_name: frontend-aar
+    restart: always
+    ports:
+      - "5173:5173"
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:3000
+      VITE_AUTO_OPEN: "false"
+    depends_on:
+      - backend
+
 volumes:
   pgdata:
 

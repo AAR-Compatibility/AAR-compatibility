@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import '../Styles/role-pages.css'
 import {
   loadSubmissions,
@@ -10,6 +10,8 @@ import {
 
 type AdminPageProps = {
   onLogout: () => void
+  onOpenViewer: () => void
+  onCreateAccount: () => void
 }
 
 const REFUEL_INTERFACE_OPTIONS = ['Boom', 'Pod', 'HDU', 'Centre Line (CL)']
@@ -27,16 +29,17 @@ const RECEIVER_MODEL_OPTIONS: Record<string, string[]> = {
 }
 
 // Render the Admin review page.
-export default function AdminPage({ onLogout }: AdminPageProps) {
-  const [submissions, setSubmissions] = useState<SRD_holderSubmission[]>([])
+export default function AdminPage({
+  onLogout,
+  onOpenViewer,
+  onCreateAccount,
+}: AdminPageProps) {
+  const [submissions, setSubmissions] = useState<SRD_holderSubmission[]>(() =>
+    loadSubmissions(),
+  )
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<SRD_holderFormValues | null>(null)
   const [editError, setEditError] = useState('')
-
-  // Load existing submissions when the page opens.
-  useEffect(() => {
-    setSubmissions(loadSubmissions())
-  }, [])
 
   // Mark one submission as approved.
   const handleApprove = (id: string) => {
@@ -121,9 +124,25 @@ export default function AdminPage({ onLogout }: AdminPageProps) {
           <span className="role-pill">Admin</span>
           <h1 className="role-page__title">Admin</h1>
         </div>
-        <button className="btn ghost" type="button" onClick={onLogout}>
-          Logout
-        </button>
+        <div className="role-header-controls">
+          <button className="btn ghost" type="button" onClick={onLogout}>
+            Logout
+          </button>
+          <section className="role-quick-actions" aria-label="Admin actions">      
+            <ul className="role-quick-actions__list">
+              <li>
+                <button className="role-quick-actions__link" type="button" onClick={onOpenViewer}>
+                  Go to Viewer
+                </button>
+              </li>
+              <li>
+                <button className="role-quick-actions__link" type="button" onClick={onCreateAccount}>
+                  Create Account
+                </button>
+              </li>
+            </ul>
+          </section>
+        </div>
       </header>
 
       <section className="role-card">
