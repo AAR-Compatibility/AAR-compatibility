@@ -1,34 +1,43 @@
 const srdService = require("../services/srd_service");
 
-exports.searchsrd = (req,res) => {
-    res.render("search_srd", {results: null, nation: null});
+
+exports.searchsrd = (req, res) => {
+  res.json({ message: "SRD search endpoint" });
 };
 
+
 exports.getsrdByNation = async (req, res) => {
+  console.log("HIT /srd/search", req.query);
   try {
-    const nation = req.query.nation;
+    const { nation } = req.query;
 
-    const srd = await srdService.getsrdByNation(nation);
+    if (!nation) {
+      return res.status(400).json({ error: "Nation is required" });
+    }
 
-    res.render("search_srd", { 
-      results: srd,
-      nation: nation
-    });
+    const data = await srdService.getsrdByNation(nation);
 
-  } catch (error) {
-    res.status(500).send(error.message);
+    res.json(data);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Server error" });
   }
 };
 
 exports.deletesrd = async (req, res) => {
-    try {
-        const id = req.params.id;
-        await srdService.deletesrd(id);
+  try {
+    const id = req.params.id;
+    await srdService.deleteById(id);
 
-        // Redirect back to the same page after deletion
-        res.redirect("/srd");
-    } catch (error) {
-        res.status(500).send(error.message);
-    }
+    // API should NOT redirect in most cases
+    res.json({ ok: true, message: "Deleted successfully" });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
 
+module.exports = {
+  searchsrd: exports.searchsrd,
+  getsrdByNation: exports.getsrdByNation,
+  deletesrd: exports.deletesrd,
+};

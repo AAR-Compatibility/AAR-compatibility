@@ -4,6 +4,7 @@ import Header from '../Components/Layout/Header'
 import Footer from '../Components/Layout/Footer'
 import AdminPage from './Admin'
 import SRD_holderPage from './SRD_holder'
+import MySRDPage from './my_srd'
 import TankersPage from './Tankers'
 import ReceiversPage from './Receivers'
 import ViewerPage from './Viewer'
@@ -21,7 +22,7 @@ import '../Styles/login.css'
 
 type Role = 'admin' | 'srd_holder' | 'viewer'
 type Step = 'select' | 'login' | 'dashboard' | 'create-account'
-type SRDView = 'home' | 'tankers' | 'receivers'
+type SRDView = 'home' | 'tankers' | 'receivers' | 'mysrd'
 
 const ROLE_OPTIONS: Array<{ key: Role; title: string }> = [
   { key: 'admin', title: 'Admin' },
@@ -271,19 +272,25 @@ export default function Login() {
               <TankersPage
                 onLogout={handleReset}
                 onOpenViewer={() => handleOpenDashboard('viewer')}
-                onOpenMySrd={() => handleOpenSrdView('home')}
+                onOpenMySrd={() => handleOpenSrdView('mysrd')}
               />
             ) : srdView === 'receivers' ? (
               <ReceiversPage
                 onLogout={handleReset}
                 onOpenViewer={() => handleOpenDashboard('viewer')}
-                onOpenMySrd={() => handleOpenSrdView('home')}
+                onOpenMySrd={() => handleOpenSrdView('mysrd')}
               />
+            ): srdView === 'mysrd' ? (
+              <MySRDPage
+                onLogout={handleReset}
+                onOpenViewer={() => handleOpenDashboard('viewer')}
+                onBack={() => handleOpenSrdView('home')}
+                />
             ) : (
               <SRD_holderPage
                 onLogout={handleReset}
                 onOpenViewer={() => handleOpenDashboard('viewer')}
-                onOpenMySrd={() => handleOpenSrdView('home')}
+                onOpenMySrd={() => handleOpenSrdView('mysrd')}
                 onOpenTankers={() => handleOpenSrdView('tankers')}
                 onOpenReceivers={() => handleOpenSrdView('receivers')}
               />

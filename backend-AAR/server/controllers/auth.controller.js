@@ -55,7 +55,8 @@ async function login(req, res, next) {
       },
     });
   } catch (err) {
-    return next(err);
+    console.error("LOGIN ERROR:", err)
+    return res.status(500).json({ error: "Login failed" });
   }
 }
 
