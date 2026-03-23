@@ -100,19 +100,19 @@ Switching branches is not always possible. If you have been changing inputs in a
 
 ## Run the services
 
-Now you are ready use the repository! Here are the steps you need to follow to start the _backend_.
+Now you are ready use the repository! Here are the steps you need to follow to start the stack and automatically open the frontend in your browser.
 
 1. Open the docker.desktop application on your device.
 2. Open Visual Studio Code and in the left top corner of your screen open the folder with the git repository in it.
-3. Go to the "docker_compose.yml" file and click on "run all services" at the top of the file. 
-4. Your service will now be running. To check this, open a browser and enter: "localhost:3000".
+3. In a terminal at the project root run: `.\start-app.cmd` (or `.\start-app.ps1`).
+4. This starts Docker Compose and opens `http://localhost:5173` automatically when the frontend is up.
 
-You can also start the backend in the terminal. To accomplish this run "docker compose up -d". The "-d" detaches the backend from logs in the terminal. If you do want to enable the function of seeing the background of your running code, remove the "-d" from your initial input or run "docker compose logs". If you update your backend code and you want to see this in your terminal, run "docker compose up -d --build". See the header "Docker" for more information.
+You can still start manually with `docker compose up -d --build`, but that command does not open your host browser automatically. If you only want to start containers without opening a browser, use `.\start-app.ps1 -NoOpen`.
 
-If you have the backend running. You can now start the _frontend_, too!
-1. In your terminal in VSC go to the relevant folder: "cd .\frontend-AAR\".
-2. In your terminal in VSC run: "npm install".
-3. Lastly, in your terminal in VSC run: "npm run dev". The localhost will start automatically.  
+If you want to run the frontend outside Docker:
+1. In your terminal in VSC go to the relevant folder: `cd .\frontend-AAR\`.
+2. In your terminal in VSC run: `npm install`.
+3. Lastly, in your terminal in VSC run: `npm run dev`. Vite opens the localhost URL automatically.
 
 
 ## Database
@@ -124,14 +124,26 @@ See [database README](Database/README.md) for database details.
 
 ## Front-end
 1. Open a terminal in `d:\Visual studio code\AAR-compatibility`.
-2. Go to the frontend folder: `cd frontend-AAR`
-3. Install dependencies: `npm install`
-4. Start the dev server: `npm run dev` (starts Vite and opens the browser)
-5. Otherwise you can click on play button in VSC ![Play buton in VSC](image-1.png)
-5. If it does not open automatically: copy the `Local:` URL from the terminal and open it manually.
-!
+2. For Docker + auto-open use: `.\start-app.cmd`
+3. For frontend-only dev use: `cd frontend-AAR`, `npm install`, `npm run dev`
+4. Otherwise you can click on play button in VSC ![Play buton in VSC](image-1.png)
+5. If it still does not open automatically: copy the `Local:` URL from the terminal and open it manually.
 
 # For login to work with jwt
 
 Install: npm i pg dotenv jsonwebtoken bcryptjs
+
+# Login credantials
+Admin:
+Username: admin@japcc.com
+Password: 12345
+
+SrdHolder:
+Username: mike@mindef.nl
+Password: Mike1234
+
+Viewer:
+Username: viewer@japcc.com
+Password: 12345
+
 

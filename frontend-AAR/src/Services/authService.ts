@@ -15,6 +15,17 @@ type LoginResponse = {
   user: AuthUser
 }
 
+export type CreateUserPayload = {
+  email: string
+  password: string
+  role: 'viewer' | 'srd_holder'
+  name?: string
+}
+
+type CreateUserResponse = {
+  user: AuthUser
+}
+
 type MeResponse = {
   user: {
     id?: number | string
@@ -101,4 +112,29 @@ export async function fetchCurrentUser(
     email: user.email,
     role: user.role,
   }
+}
+
+// Creates a new viewer or SRD holder account for admin users.
+export async function createUserAccount(
+  payload: CreateUserPayload,
+  token = getStoredAuthToken(),
+): Promise<CreateUserResponse> {
+  if (!token) {
+    throw new Error('No token available.')
+  }
+
+  const response = await fetch('/api/auth/users', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify(payload),
+  })
+
+  if (!response.ok) {
+    throw new Error(await getErrorMessage(response, 'Failed to create account.'))
+  }
+
+  return (await response.json()) as CreateUserResponse
 }

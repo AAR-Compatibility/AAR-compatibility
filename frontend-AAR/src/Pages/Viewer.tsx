@@ -1,3 +1,4 @@
+// This page shows viewer search and supports optional back navigation to the previous role page.
 import {
   Fragment,
   useEffect,
@@ -17,6 +18,8 @@ import {
 
 type ViewerPageProps = {
   onLogout: () => void
+  onBack?: () => void
+  backLabel?: string
 }
 
 type ViewerResultItem = {
@@ -69,7 +72,11 @@ function buildResultSignature(item: ViewerResultItem) {
   })
 }
 
-export default function ViewerPage({ onLogout }: ViewerPageProps) {
+export default function ViewerPage({
+  onLogout,
+  onBack,
+  backLabel = 'Back',
+}: ViewerPageProps) {
   const [formValues, setFormValues] = useState<ViewerPayload>(EMPTY_FORM)
   const [options, setOptions] = useState<ViewerOptionsResponse | null>(null)
   const [resultItems, setResultItems] = useState<ViewerResultItem[]>([])
@@ -264,9 +271,16 @@ export default function ViewerPage({ onLogout }: ViewerPageProps) {
           <span className="role-pill">Viewer</span>
           <h1 className="role-page__title">Viewer</h1>
         </div>
-        <button className="btn ghost" type="button" onClick={onLogout}>
-          Logout
-        </button>
+        <div className="role-header-controls">
+          {onBack && (
+            <button className="btn ghost" type="button" onClick={onBack}>
+              {backLabel}
+            </button>
+          )}
+          <button className="btn ghost" type="button" onClick={onLogout}>
+            Logout
+          </button>
+        </div>
       </header>
 
       <section className="role-card">

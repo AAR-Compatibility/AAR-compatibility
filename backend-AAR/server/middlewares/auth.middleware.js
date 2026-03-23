@@ -27,7 +27,8 @@ const ROLE_PERMISSIONS = {
     'request.review_comment',
     'request.approve',
     'request.reject',
-    'request.process_approved'
+    'request.process_approved',
+    'user.create'
   ]
 };
 
