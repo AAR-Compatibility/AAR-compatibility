@@ -1,0 +1,47 @@
+.contact-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.contact-main {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  padding: 2rem 1.5rem;
+}
+
+.contact-card {
+  width: min(720px, 100%);
+  background: #ffffff;
+  border: 1px solid #d6e7ff;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.08);
+}
+
+.contact-card h1 {
+  margin: 0 0 0.75rem;
+  color: #0f172a;
+}
+
+.contact-card p {
+  margin: 0 0 1rem;
+  color: #334155;
+  line-height: 1.6;
+}
+
+.contact-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #0f172a;
+}
+
+.contact-list a {
+  color: #1d4ed8;
+  text-decoration: none;
+}
+
+.contact-list a:hover {
+  text-decoration: underline;
+}

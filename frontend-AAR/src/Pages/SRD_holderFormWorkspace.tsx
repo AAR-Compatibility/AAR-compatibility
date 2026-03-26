@@ -281,7 +281,7 @@ export default function SRDHolderFormWorkspace({
             </label>
             {showTankerCompatibility ? (
               <label className="input-group">
-                C_tanker
+                Cat-tanker
                 <select
                   name="cTanker"
                   value={formValues.cTanker}
@@ -301,7 +301,7 @@ export default function SRDHolderFormWorkspace({
             ) : null}
             {showReceiverCompatibility ? (
               <label className="input-group">
-                C_reciever
+                Cat-reciever
                 <select
                   name="cReciever"
                   value={formValues.cReciever}
@@ -321,20 +321,20 @@ export default function SRDHolderFormWorkspace({
             ) : null}
             {showTankerCompatibility ? (
               <label className="input-group">
-                V_srd_T
+                Version Srd Tanker
                 <input
                   type="text"
                   name="vSrdT"
                   value={formValues.vSrdT}
                   onChange={handleChange}
-                  placeholder="V_srd_T"
+                  placeholder="Version SRD"
                   required
                 />
               </label>
             ) : null}
             {showReceiverCompatibility ? (
               <label className="input-group">
-                V_srd_R
+                Version Srd Receiver
                 <input
                   type="text"
                   name="vSrdR"
@@ -346,7 +346,7 @@ export default function SRDHolderFormWorkspace({
               </label>
             ) : null}
             <label className="input-group">
-              Refuel interface
+              Refuel Interface
               <select
                 name="refuellingInterface"
                 value={formValues.refuellingInterface}
@@ -364,7 +364,7 @@ export default function SRDHolderFormWorkspace({
               </select>
             </label>
             <label className="input-group">
-              Min FL
+              Minimum Altitude FL
               <input
                 type="text"
                 name="minimumFlightLevel"
@@ -375,7 +375,7 @@ export default function SRDHolderFormWorkspace({
               />
             </label>
             <label className="input-group">
-              Max FL
+              Maximum Altitude FL
               <input
                 type="text"
                 name="maximumFlightLevel"
@@ -386,7 +386,7 @@ export default function SRDHolderFormWorkspace({
               />
             </label>
             <label className="input-group">
-              Min KCAS
+              Minimum speed KCAS
               <input
                 type="text"
                 name="minimumKcas"
@@ -397,7 +397,7 @@ export default function SRDHolderFormWorkspace({
               />
             </label>
             <label className="input-group">
-              Max KCAS
+              Maximum speed KCAS
               <input
                 type="text"
                 name="maximumKcas"
@@ -408,10 +408,10 @@ export default function SRDHolderFormWorkspace({
               />
             </label>
             <label className="input-group">
-              Max_as_m
+              Maximum speed MACH
               <input
                 type="text"
-                name="maxAsM"
+                name="mach"
                 value={formValues.maxAsM}
                 onChange={handleChange}
                 placeholder="0.82"
@@ -419,13 +419,13 @@ export default function SRDHolderFormWorkspace({
               />
             </label>
             <label className="input-group">
-              Fuel rate
+              Fuel Flow Rate
               <input
                 type="text"
                 name="planningFuelTransferRate"
                 value={formValues.planningFuelTransferRate}
                 onChange={handleChange}
-                placeholder="900 kg/min"
+                placeholder="900 lb/min"
                 required
               />
             </label>

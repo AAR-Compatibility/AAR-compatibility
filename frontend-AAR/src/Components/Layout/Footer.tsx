@@ -7,10 +7,6 @@ export default function Footer() {
       </div>
       <div className="site-footer__right">
         <span>© {new Date().getFullYear()} JAPCC</span>
-        <div className="site-footer__links">
-          <a href="#">Privacy</a>
-          <a href="#">Contact</a>
-        </div>
       </div>
     </footer>
   )
