@@ -6,6 +6,7 @@ import AdminPage from './Admin'
 import SRD_holderPage from './SRD_holder'
 import TankersPage from './Tankers'
 import ReceiversPage from './Receivers'
+import BothPage from './Both'
 import ViewerPage from './Viewer'
 import CreateAccountPage from './CreateAccount'
 import PictureAAR from '../Assets/Picture AAR.jpg'
@@ -21,7 +22,7 @@ import '../Styles/login.css'
 
 type Role = 'admin' | 'srd_holder' | 'viewer'
 type Step = 'select' | 'login' | 'dashboard' | 'create-account'
-type SRDView = 'home' | 'tankers' | 'receivers'
+type SRDView = 'home' | 'tankers' | 'receivers' | 'both'
 
 const ROLE_OPTIONS: Array<{ key: Role; title: string }> = [
   { key: 'admin', title: 'Admin' },
@@ -92,6 +93,7 @@ async function authenticateUser(
 export default function Login() {
   const [step, setStep] = useState<Step>('select')
   const [activeRole, setActiveRole] = useState<Role | null>(null)
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null)
   const [srdView, setSrdView] = useState<SRDView>('home')
   const [viewerReturnRole, setViewerReturnRole] = useState<Exclude<Role, 'viewer'> | null>(null)
   const [email, setEmail] = useState('')
@@ -120,6 +122,7 @@ export default function Login() {
         }
 
         if (!cancelled) {
+          setCurrentUser(user)
           setActiveRole(restoredRole)
           if (restoredRole === 'srd_holder') {
             setSrdView('home')
@@ -154,6 +157,7 @@ export default function Login() {
     clearAuthToken()
     setStep('select')
     setActiveRole(null)
+    setCurrentUser(null)
     setSrdView('home')
     setViewerReturnRole(null)
     setEmail('')
@@ -236,6 +240,7 @@ export default function Login() {
     }
 
     setActiveRole(backendRole)
+    setCurrentUser(result.user)
     if (backendRole === 'srd_holder') {
       setSrdView('home')
     }
@@ -262,6 +267,7 @@ export default function Login() {
         ) : showRolePage ? (
           activeRole === 'admin' ? (
             <AdminPage
+              currentUser={currentUser}
               onLogout={handleReset}
               onOpenViewer={() => handleOpenDashboard('viewer')}
               onCreateAccount={handleCreateAccount}
@@ -279,13 +285,21 @@ export default function Login() {
                 onOpenViewer={() => handleOpenDashboard('viewer')}
                 onOpenMySrd={() => handleOpenSrdView('home')}
               />
+            ) : srdView === 'both' ? (
+              <BothPage
+                onLogout={handleReset}
+                onOpenViewer={() => handleOpenDashboard('viewer')}
+                onOpenMySrd={() => handleOpenSrdView('home')}
+              />
             ) : (
               <SRD_holderPage
+                currentUser={currentUser}
                 onLogout={handleReset}
                 onOpenViewer={() => handleOpenDashboard('viewer')}
                 onOpenMySrd={() => handleOpenSrdView('home')}
                 onOpenTankers={() => handleOpenSrdView('tankers')}
                 onOpenReceivers={() => handleOpenSrdView('receivers')}
+                onOpenBoth={() => handleOpenSrdView('both')}
               />
             )
           ) : (

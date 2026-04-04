@@ -1,3 +1,4 @@
+// This service loads the viewer dropdown options and search results from the backend.
 import { getStoredAuthToken } from './authService'
 
 export type ViewerPayload = {
@@ -24,7 +25,7 @@ export type ViewerResultRow = {
   notes: string | null
 }
 
-type NationOptionTree = {
+export type NationOptionTree = {
   nations: string[]
   byNation: Record<
     string,

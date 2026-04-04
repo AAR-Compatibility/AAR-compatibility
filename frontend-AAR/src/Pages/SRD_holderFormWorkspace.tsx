@@ -1,94 +1,221 @@
-import { useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+// This form supports existing and new tanker/receiver requests while reusing the same viewer dropdown data and submission flow.
+import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import '../Styles/role-pages.css'
 import {
   addSubmission,
   loadSubmissions,
   updateSubmission,
   updateSubmissionStatus,
+  type SubmissionRequestMode,
+  type SubmissionRequestTarget,
   type SRD_holderFormValues,
   type SRD_holderSubmission,
 } from '../Services/submissionService'
+import {
+  fetchViewerOptions,
+  type ViewerOptionsResponse,
+} from '../Services/viewerService'
 
 type SRDHolderFormWorkspaceProps = {
   pageTitle: string
+  workspaceTarget: SubmissionRequestTarget
   onLogout: () => void
   onOpenViewer: () => void
   onOpenMySrd: () => void
 }
 
-const EMPTY_FORM: SRD_holderFormValues = {
-  nationOrganisation: '',
-  tankerType: '',
-  tankerModel: '',
-  receiverNation: '',
-  receiverType: '',
-  receiverModel: '',
-  cTanker: '',
-  cReciever: '',
-  vSrdT: '',
-  vSrdR: '',
-  refuellingInterface: '',
-  minimumFlightLevel: '',
-  maximumFlightLevel: '',
-  minimumKcas: '',
-  maximumKcas: '',
-  maxAsM: '',
-  planningFuelTransferRate: '',
-  comment: '',
+function createEmptyForm(
+  requestTarget: SubmissionRequestTarget,
+  requestMode: SubmissionRequestMode = 'existing',
+): SRD_holderFormValues {
+  return {
+    requestTarget,
+    requestMode,
+    nationOrganisation: '',
+    tankerType: '',
+    tankerModel: '',
+    receiverNation: '',
+    receiverType: '',
+    receiverModel: '',
+    cTanker: '',
+    cReciever: '',
+    vSrdT: '',
+    vSrdR: '',
+    refuellingInterface: '',
+    minimumFlightLevel: '',
+    maximumFlightLevel: '',
+    minimumKcas: '',
+    maximumKcas: '',
+    maxAsM: '',
+    planningFuelTransferRate: '',
+    comment: '',
+  }
 }
 
 const REFUEL_INTERFACE_OPTIONS = ['Boom', 'Pod', 'HDU', 'Centre Line (CL)']
 const C_CATEGORY_OPTIONS = ['Cat-1', 'Cat-2', 'Cat-3']
-const NATION_OPTIONS = ['MMF', 'Australie']
-const TANKER_TYPE_OPTIONS = ['A330 MRTT']
-const TANKER_MODEL_OPTIONS: Record<string, string[]> = {
-  'A330 MRTT': ['KC-30M', 'KC-30A'],
-}
-const RECEIVER_TYPE_OPTIONS = ['F-16', 'F-35', 'C-17']
-const RECEIVER_MODEL_OPTIONS: Record<string, string[]> = {
-  'F-16': ['A', 'B', 'C'],
-  'F-35': ['A'],
-  'C-17': ['A'],
-}
 
 // Shared form workspace for both Tankers and Receivers pages.
 export default function SRDHolderFormWorkspace({
   pageTitle,
+  workspaceTarget,
   onLogout,
   onOpenViewer,
   onOpenMySrd,
 }: SRDHolderFormWorkspaceProps) {
-  const isTankersPage = pageTitle.trim().toLowerCase() === 'tankers'
-  const isReceiversPage = pageTitle.trim().toLowerCase() === 'receivers'
-  const showTankerCompatibility = !isReceiversPage
-  const showReceiverCompatibility = !isTankersPage
-  const [formValues, setFormValues] = useState<SRD_holderFormValues>(EMPTY_FORM)
+  const isTankersPage = workspaceTarget === 'tanker'
+  const isReceiversPage = workspaceTarget === 'receiver'
+  const pageRequestTarget: SubmissionRequestTarget = workspaceTarget
+  const [formValues, setFormValues] = useState<SRD_holderFormValues>(() =>
+    createEmptyForm(pageRequestTarget),
+  )
   const [submissions, setSubmissions] = useState<SRD_holderSubmission[]>(() =>
     loadSubmissions(),
   )
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [options, setOptions] = useState<ViewerOptionsResponse | null>(null)
+  const [isLoadingOptions, setIsLoadingOptions] = useState(true)
+  const [optionsError, setOptionsError] = useState('')
+  const isNewRequest = formValues.requestMode === 'new'
+  const isNewTankerRequest = isTankersPage && isNewRequest
+  const isNewReceiverRequest = isReceiversPage && isNewRequest
+  const showTankerCompatibility = pageRequestTarget !== 'receiver' && !isNewRequest
+  const showReceiverCompatibility = pageRequestTarget !== 'tanker' && !isNewRequest
+  const showOperationalFields = !isNewRequest
+  const showTankerSelection = !isNewReceiverRequest
+  const showReceiverSelection = !isNewTankerRequest
+
+  useEffect(() => {
+    let isMounted = true
+
+    const loadOptions = async () => {
+      setIsLoadingOptions(true)
+      try {
+        const fetchedOptions = await fetchViewerOptions()
+        if (!isMounted) {
+          return
+        }
+        setOptions(fetchedOptions)
+        setOptionsError('')
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+        setOptionsError(
+          error instanceof Error ? error.message : 'Failed to load dropdown options.',
+        )
+      } finally {
+        if (isMounted) {
+          setIsLoadingOptions(false)
+        }
+      }
+    }
+
+    void loadOptions()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const tankerNationOptions = useMemo(
+    () => options?.tanker.nations ?? [],
+    [options],
+  )
+
+  const tankerTypeOptions = useMemo(() => {
+    if (!options || !formValues.nationOrganisation) {
+      return []
+    }
+    return options.tanker.byNation[formValues.nationOrganisation]?.types ?? []
+  }, [options, formValues.nationOrganisation])
 
   const tankerModelOptions = useMemo(() => {
-    if (formValues.tankerType) {
-      return TANKER_MODEL_OPTIONS[formValues.tankerType] ?? []
+    if (!options || !formValues.nationOrganisation || !formValues.tankerType) {
+      return []
     }
-    return []
-  }, [formValues.tankerType])
+    return (
+      options.tanker.byNation[formValues.nationOrganisation]?.modelsByType[
+        formValues.tankerType
+      ] ?? []
+    )
+  }, [options, formValues.nationOrganisation, formValues.tankerType])
+
+  const receiverNationOptions = useMemo(
+    () => options?.receiver.nations ?? [],
+    [options],
+  )
+
+  const receiverTypeOptions = useMemo(() => {
+    if (!options || !formValues.receiverNation) {
+      return []
+    }
+    return options.receiver.byNation[formValues.receiverNation]?.types ?? []
+  }, [options, formValues.receiverNation])
 
   const receiverModelOptions = useMemo(() => {
-    if (formValues.receiverType) {
-      return RECEIVER_MODEL_OPTIONS[formValues.receiverType] ?? []
+    if (!options || !formValues.receiverNation || !formValues.receiverType) {
+      return []
     }
-    return []
-  }, [formValues.receiverType])
+    return (
+      options.receiver.byNation[formValues.receiverNation]?.modelsByType[
+        formValues.receiverType
+      ] ?? []
+    )
+  }, [options, formValues.receiverNation, formValues.receiverType])
+
+  const toggleLabels = isTankersPage
+    ? { existing: 'Existing Tanker', replacement: 'New Tanker' }
+    : isReceiversPage
+      ? { existing: 'Existing Receiver', replacement: 'New Receiver' }
+      : null
+
+  const handleRequestModeChange = (requestMode: SubmissionRequestMode) => {
+    setEditingId(null)
+    setFormValues((prev) => {
+      const next = createEmptyForm(pageRequestTarget, requestMode)
+
+      if (pageRequestTarget === 'tanker') {
+        next.nationOrganisation = prev.nationOrganisation
+        next.tankerType = prev.tankerType
+        next.tankerModel = prev.tankerModel
+      } else if (pageRequestTarget === 'receiver') {
+        next.receiverNation = prev.receiverNation
+        next.receiverType = prev.receiverType
+        next.receiverModel = prev.receiverModel
+      } else {
+        next.nationOrganisation = prev.nationOrganisation
+        next.tankerType = prev.tankerType
+        next.tankerModel = prev.tankerModel
+        next.receiverNation = prev.receiverNation
+        next.receiverType = prev.receiverType
+        next.receiverModel = prev.receiverModel
+      }
+
+      next.comment = prev.comment
+      return next
+    })
+  }
+
+  const visibleSubmissions = useMemo(() => {
+    return submissions.filter((submission) => {
+      return submission.requestTarget === pageRequestTarget
+    })
+  }, [pageRequestTarget, submissions])
 
   const handleChange = (
     event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = event.target
     setFormValues((prev) => {
+      if (name === 'nationOrganisation') {
+        return { ...prev, nationOrganisation: value, tankerType: '', tankerModel: '' }
+      }
       if (name === 'tankerType') {
         return { ...prev, tankerType: value, tankerModel: '' }
+      }
+      if (name === 'receiverNation') {
+        return { ...prev, receiverNation: value, receiverType: '', receiverModel: '' }
       }
       if (name === 'receiverType') {
         return { ...prev, receiverType: value, receiverModel: '' }
@@ -103,16 +230,16 @@ export default function SRDHolderFormWorkspace({
       updateSubmission(editingId, formValues)
       setSubmissions(updateSubmissionStatus(editingId, 'Pending Review'))
       setEditingId(null)
-      setFormValues(EMPTY_FORM)
+      setFormValues(createEmptyForm(pageRequestTarget, formValues.requestMode))
       return
     }
     setSubmissions(addSubmission(formValues))
-    setFormValues(EMPTY_FORM)
+    setFormValues(createEmptyForm(pageRequestTarget, formValues.requestMode))
   }
 
   const handleReset = () => {
     setEditingId(null)
-    setFormValues(EMPTY_FORM)
+    setFormValues(createEmptyForm(pageRequestTarget, formValues.requestMode))
   }
 
   const handleEditRejected = (submission: SRD_holderSubmission) => {
@@ -167,118 +294,223 @@ export default function SRDHolderFormWorkspace({
             ? 'Edit your rejected form and submit it again for admin review.'
             : 'Fill in the form below and submit it for admin review.'}
         </p>
+        {optionsError && <p className="viewer-error">{optionsError}</p>}
         <form className="srd_holder-form" onSubmit={handleSubmit}>
+          {toggleLabels ? (
+            <div className="request-mode-toggle" role="tablist" aria-label="Request mode">
+              <button
+                className={`request-mode-toggle__option ${
+                  formValues.requestMode === 'existing'
+                    ? 'request-mode-toggle__option--active'
+                    : ''
+                }`}
+                type="button"
+                onClick={() => handleRequestModeChange('existing')}
+                aria-pressed={formValues.requestMode === 'existing'}
+              >
+                {toggleLabels.existing}
+              </button>
+              <button
+                className={`request-mode-toggle__option ${
+                  formValues.requestMode === 'new' ? 'request-mode-toggle__option--active' : ''
+                }`}
+                type="button"
+                onClick={() => handleRequestModeChange('new')}
+                aria-pressed={formValues.requestMode === 'new'}
+              >
+                {toggleLabels.replacement}
+              </button>
+            </div>
+          ) : null}
           <div className="srd_holder-form__grid">
-            <label className="input-group">
-              Tanker Nation
-              <select
-                name="nationOrganisation"
-                value={formValues.nationOrganisation}
-                onChange={handleChange}
-                required
-              >
-                <option value="" disabled>
-                  Select
-                </option>
-                {NATION_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="input-group">
-              Tanker Type
-              <select
-                name="tankerType"
-                value={formValues.tankerType}
-                onChange={handleChange}
-                required
-              >
-                <option value="" disabled>
-                  Select
-                </option>
-                {TANKER_TYPE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="input-group">
-              Tanker Model
-              <select
-                name="tankerModel"
-                value={formValues.tankerModel}
-                onChange={handleChange}
-                required
-                disabled={!formValues.tankerType}
-              >
-                <option value="" disabled>
-                  Select
-                </option>
-                {tankerModelOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="input-group">
-              Receiver Nation
-              <select
-                name="receiverNation"
-                value={formValues.receiverNation}
-                onChange={handleChange}
-                required
-              >
-                <option value="" disabled>
-                  Select
-                </option>
-                {NATION_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="input-group">
-              Receiver Type
-              <select
-                name="receiverType"
-                value={formValues.receiverType}
-                onChange={handleChange}
-                required
-              >
-                <option value="" disabled>
-                  Select
-                </option>
-                {RECEIVER_TYPE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="input-group">
-              Receiver Model
-              <select
-                name="receiverModel"
-                value={formValues.receiverModel}
-                onChange={handleChange}
-                required
-                disabled={!formValues.receiverType}
-              >
-                <option value="" disabled>
-                  Select
-                </option>
-                {receiverModelOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {showTankerSelection ? (
+              <>
+                <label className="input-group">
+                  Tanker Nation
+                  {isNewTankerRequest ? (
+                    <input
+                      type="text"
+                      name="nationOrganisation"
+                      value={formValues.nationOrganisation}
+                      onChange={handleChange}
+                      placeholder="Enter tanker nation"
+                      required
+                    />
+                  ) : (
+                    <select
+                      name="nationOrganisation"
+                      value={formValues.nationOrganisation}
+                      onChange={handleChange}
+                      required
+                      disabled={isLoadingOptions}
+                    >
+                      <option value="" disabled>
+                        Select
+                      </option>
+                      {tankerNationOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                <label className="input-group">
+                  Tanker Type
+                  {isNewTankerRequest ? (
+                    <input
+                      type="text"
+                      name="tankerType"
+                      value={formValues.tankerType}
+                      onChange={handleChange}
+                      placeholder="Enter tanker type"
+                      required
+                    />
+                  ) : (
+                    <select
+                      name="tankerType"
+                      value={formValues.tankerType}
+                      onChange={handleChange}
+                      required
+                      disabled={isLoadingOptions || !formValues.nationOrganisation}
+                    >
+                      <option value="" disabled>
+                        Select
+                      </option>
+                      {tankerTypeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                <label className="input-group">
+                  Tanker Model
+                  {isNewTankerRequest ? (
+                    <input
+                      type="text"
+                      name="tankerModel"
+                      value={formValues.tankerModel}
+                      onChange={handleChange}
+                      placeholder="Enter tanker model"
+                      required
+                    />
+                  ) : (
+                    <select
+                      name="tankerModel"
+                      value={formValues.tankerModel}
+                      onChange={handleChange}
+                      required
+                      disabled={isLoadingOptions || !formValues.tankerType}
+                    >
+                      <option value="" disabled>
+                        Select
+                      </option>
+                      {tankerModelOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+              </>
+            ) : null}
+            {showReceiverSelection ? (
+              <>
+                <label className="input-group">
+                  Receiver Nation
+                  {isNewReceiverRequest ? (
+                    <input
+                      type="text"
+                      name="receiverNation"
+                      value={formValues.receiverNation}
+                      onChange={handleChange}
+                      placeholder="Enter receiver nation"
+                      required
+                    />
+                  ) : (
+                    <select
+                      name="receiverNation"
+                      value={formValues.receiverNation}
+                      onChange={handleChange}
+                      required
+                      disabled={isLoadingOptions}
+                    >
+                      <option value="" disabled>
+                        Select
+                      </option>
+                      {receiverNationOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                <label className="input-group">
+                  Receiver Type
+                  {isNewReceiverRequest ? (
+                    <input
+                      type="text"
+                      name="receiverType"
+                      value={formValues.receiverType}
+                      onChange={handleChange}
+                      placeholder="Enter receiver type"
+                      required
+                    />
+                  ) : (
+                    <select
+                      name="receiverType"
+                      value={formValues.receiverType}
+                      onChange={handleChange}
+                      required
+                      disabled={isLoadingOptions || !formValues.receiverNation}
+                    >
+                      <option value="" disabled>
+                        Select
+                      </option>
+                      {receiverTypeOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                <label className="input-group">
+                  Receiver Model
+                  {isNewReceiverRequest ? (
+                    <input
+                      type="text"
+                      name="receiverModel"
+                      value={formValues.receiverModel}
+                      onChange={handleChange}
+                      placeholder="Enter receiver model"
+                      required
+                    />
+                  ) : (
+                    <select
+                      name="receiverModel"
+                      value={formValues.receiverModel}
+                      onChange={handleChange}
+                      required
+                      disabled={isLoadingOptions || !formValues.receiverType}
+                    >
+                      <option value="" disabled>
+                        Select
+                      </option>
+                      {receiverModelOptions.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+              </>
+            ) : null}
             {showTankerCompatibility ? (
               <label className="input-group">
                 Cat-tanker
@@ -345,90 +577,94 @@ export default function SRDHolderFormWorkspace({
                 />
               </label>
             ) : null}
-            <label className="input-group">
-              Refuel Interface
-              <select
-                name="refuellingInterface"
-                value={formValues.refuellingInterface}
-                onChange={handleChange}
-                required
-              >
-                <option value="" disabled>
-                  Select
-                </option>
-                {REFUEL_INTERFACE_OPTIONS.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="input-group">
-              Minimum Altitude FL
-              <input
-                type="text"
-                name="minimumFlightLevel"
-                value={formValues.minimumFlightLevel}
-                onChange={handleChange}
-                placeholder="FL180"
-                required
-              />
-            </label>
-            <label className="input-group">
-              Maximum Altitude FL
-              <input
-                type="text"
-                name="maximumFlightLevel"
-                value={formValues.maximumFlightLevel}
-                onChange={handleChange}
-                placeholder="FL300"
-                required
-              />
-            </label>
-            <label className="input-group">
-              Minimum speed KCAS
-              <input
-                type="text"
-                name="minimumKcas"
-                value={formValues.minimumKcas}
-                onChange={handleChange}
-                placeholder="220"
-                required
-              />
-            </label>
-            <label className="input-group">
-              Maximum speed KCAS
-              <input
-                type="text"
-                name="maximumKcas"
-                value={formValues.maximumKcas}
-                onChange={handleChange}
-                placeholder="300"
-                required
-              />
-            </label>
-            <label className="input-group">
-              Maximum speed MACH
-              <input
-                type="text"
-                name="mach"
-                value={formValues.maxAsM}
-                onChange={handleChange}
-                placeholder="0.82"
-                required
-              />
-            </label>
-            <label className="input-group">
-              Fuel Flow Rate
-              <input
-                type="text"
-                name="planningFuelTransferRate"
-                value={formValues.planningFuelTransferRate}
-                onChange={handleChange}
-                placeholder="900 lb/min"
-                required
-              />
-            </label>
+            {showOperationalFields ? (
+              <>
+                <label className="input-group">
+                  Refuel Interface
+                  <select
+                    name="refuellingInterface"
+                    value={formValues.refuellingInterface}
+                    onChange={handleChange}
+                    required
+                  >
+                    <option value="" disabled>
+                      Select
+                    </option>
+                    {REFUEL_INTERFACE_OPTIONS.map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="input-group">
+                  Minimum Altitude FL
+                  <input
+                    type="text"
+                    name="minimumFlightLevel"
+                    value={formValues.minimumFlightLevel}
+                    onChange={handleChange}
+                    placeholder="FL180"
+                    required
+                  />
+                </label>
+                <label className="input-group">
+                  Maximum Altitude FL
+                  <input
+                    type="text"
+                    name="maximumFlightLevel"
+                    value={formValues.maximumFlightLevel}
+                    onChange={handleChange}
+                    placeholder="FL300"
+                    required
+                  />
+                </label>
+                <label className="input-group">
+                  Minimum speed KCAS
+                  <input
+                    type="text"
+                    name="minimumKcas"
+                    value={formValues.minimumKcas}
+                    onChange={handleChange}
+                    placeholder="220"
+                    required
+                  />
+                </label>
+                <label className="input-group">
+                  Maximum speed KCAS
+                  <input
+                    type="text"
+                    name="maximumKcas"
+                    value={formValues.maximumKcas}
+                    onChange={handleChange}
+                    placeholder="300"
+                    required
+                  />
+                </label>
+                <label className="input-group">
+                  Maximum speed MACH
+                  <input
+                    type="text"
+                    name="maxAsM"
+                    value={formValues.maxAsM}
+                    onChange={handleChange}
+                    placeholder="0.82"
+                    required
+                  />
+                </label>
+                <label className="input-group">
+                  Fuel Flow Rate
+                  <input
+                    type="text"
+                    name="planningFuelTransferRate"
+                    value={formValues.planningFuelTransferRate}
+                    onChange={handleChange}
+                    placeholder="900 lb/min"
+                    required
+                  />
+                </label>
+              </>
+            ) : null}
             <label className="input-group">
               Comment
               <textarea
@@ -455,10 +691,10 @@ export default function SRDHolderFormWorkspace({
       <section className="role-card">
         <div className="role-card__header">
           <h2>Submitted Forms</h2>
-          <span className="role-card__meta">{submissions.length} total</span>
+          <span className="role-card__meta">{visibleSubmissions.length} total</span>
         </div>
         <p className="muted">Track the status of each submission after the admin decision.</p>
-        {submissions.length === 0 ? (
+        {visibleSubmissions.length === 0 ? (
           <p className="muted">No forms submitted yet.</p>
         ) : (
           <div className="table-wrap">
@@ -554,7 +790,7 @@ export default function SRDHolderFormWorkspace({
                 </tr>
               </thead>
               <tbody>
-                {submissions.map((submission) => (
+                {visibleSubmissions.map((submission) => (
                   <tr key={submission.id}>
                     <td data-label="Tanker Nation">{submission.nationOrganisation}</td>
                     <td data-label="Tanker Type">{submission.tankerType}</td>

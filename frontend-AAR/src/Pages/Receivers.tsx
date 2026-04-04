@@ -7,5 +7,5 @@ type ReceiversPageProps = {
 }
 
 export default function ReceiversPage(props: ReceiversPageProps) {
-  return <SRDHolderFormWorkspace {...props} pageTitle="Receivers" />
+  return <SRDHolderFormWorkspace {...props} pageTitle="Receivers" workspaceTarget="receiver" />
 }

@@ -7,5 +7,5 @@ type TankersPageProps = {
 }
 
 export default function TankersPage(props: TankersPageProps) {
-  return <SRDHolderFormWorkspace {...props} pageTitle="Tankers" />
+  return <SRDHolderFormWorkspace {...props} pageTitle="Tankers" workspaceTarget="tanker" />
 }

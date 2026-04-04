@@ -1,6 +1,11 @@
+// This service stores, updates, and deletes SRD holder submissions in browser storage.
 export type SubmissionStatus = 'Pending Review' | 'Approved' | 'Rejected'
+export type SubmissionRequestTarget = 'tanker' | 'receiver' | 'both'
+export type SubmissionRequestMode = 'existing' | 'new'
 
 export type SRD_holderFormValues = {
+  requestTarget: SubmissionRequestTarget
+  requestMode: SubmissionRequestMode
   nationOrganisation: string
   tankerType: string
   tankerModel: string
@@ -36,6 +41,38 @@ function normalizeStatus(status: unknown): SubmissionStatus {
   return 'Pending Review'
 }
 
+function normalizeRequestTarget(
+  submission: Partial<SRD_holderSubmission>,
+): SubmissionRequestTarget {
+  if (
+    submission.requestTarget === 'tanker' ||
+    submission.requestTarget === 'receiver' ||
+    submission.requestTarget === 'both'
+  ) {
+    return submission.requestTarget
+  }
+
+  if ((submission.cTanker || submission.vSrdT) && (submission.cReciever || submission.vSrdR)) {
+    return 'both'
+  }
+
+  if (submission.cReciever || submission.vSrdR) {
+    return 'receiver'
+  }
+
+  return 'tanker'
+}
+
+function normalizeRequestMode(
+  submission: Partial<SRD_holderSubmission>,
+): SubmissionRequestMode {
+  if (submission.requestMode === 'existing' || submission.requestMode === 'new') {
+    return submission.requestMode
+  }
+
+  return 'existing'
+}
+
 // Load saved submissions from browser storage.
 export function loadSubmissions(): SRD_holderSubmission[] {
   if (typeof window === 'undefined') return []
@@ -44,8 +81,32 @@ export function loadSubmissions(): SRD_holderSubmission[] {
     const parsed = raw ? (JSON.parse(raw) as unknown) : []
     if (!Array.isArray(parsed)) return []
     return parsed.map((item) => {
-      const submission = item as SRD_holderSubmission
-      return { ...submission, status: normalizeStatus(submission.status) }
+      const submission = item as Partial<SRD_holderSubmission>
+      return {
+        requestTarget: normalizeRequestTarget(submission),
+        requestMode: normalizeRequestMode(submission),
+        nationOrganisation: submission.nationOrganisation ?? '',
+        tankerType: submission.tankerType ?? '',
+        tankerModel: submission.tankerModel ?? '',
+        receiverNation: submission.receiverNation ?? '',
+        receiverType: submission.receiverType ?? '',
+        receiverModel: submission.receiverModel ?? '',
+        cTanker: submission.cTanker ?? '',
+        cReciever: submission.cReciever ?? '',
+        vSrdT: submission.vSrdT ?? '',
+        vSrdR: submission.vSrdR ?? '',
+        refuellingInterface: submission.refuellingInterface ?? '',
+        minimumFlightLevel: submission.minimumFlightLevel ?? '',
+        maximumFlightLevel: submission.maximumFlightLevel ?? '',
+        minimumKcas: submission.minimumKcas ?? '',
+        maximumKcas: submission.maximumKcas ?? '',
+        maxAsM: submission.maxAsM ?? '',
+        planningFuelTransferRate: submission.planningFuelTransferRate ?? '',
+        comment: submission.comment ?? '',
+        id: submission.id ?? createId(),
+        createdAt: submission.createdAt ?? new Date().toISOString(),
+        status: normalizeStatus(submission.status),
+      }
     })
   } catch {
     return []
@@ -94,6 +155,13 @@ export function updateSubmission(
   const updated = loadSubmissions().map((submission) =>
     submission.id === id ? { ...submission, ...values } : submission,
   )
+  saveSubmissions(updated)
+  return updated
+}
+
+// Delete one submission and persist the remaining list.
+export function deleteSubmission(id: string): SRD_holderSubmission[] {
+  const updated = loadSubmissions().filter((submission) => submission.id !== id)
   saveSubmissions(updated)
   return updated
 }
