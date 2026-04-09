@@ -3,12 +3,27 @@ const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 const JWT_SECRET = process.env.JWT_SECRET || 'AAR_Compatibility_Project_SuperSecret_2026';
 const CREATABLE_ROLES = new Set(['viewer', 'srd_holder']);
+const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmail(email) {
+  return String(email ?? '').trim().toLowerCase();
+}
+
+function isValidEmail(email) {
+  return EMAIL_PATTERN.test(email);
+}
 
 async function login(req, res, next) {
   try {
     const { email, password } = req.body;
 
     if (!email || !password) {
+      return res.status(400).json({ message: 'Email and password are required.' });
+    }
+
+    const normalizedEmail = normalizeEmail(email);
+
+    if (!normalizedEmail) {
       return res.status(400).json({ message: 'Email and password are required.' });
     }
 
@@ -20,7 +35,7 @@ async function login(req, res, next) {
       JOIN "Rol" r ON r."RolID" = u."RolRolID"
       WHERE u."email" = $1
       `,
-      [email]
+      [normalizedEmail]
     );
 
     if (result.rowCount === 0) {
@@ -72,8 +87,16 @@ async function createUser(req, res, next) {
       return res.status(400).json({ message: 'Email, password, and role are required.' });
     }
 
-    const normalizedEmail = String(email).trim().toLowerCase();
+    const normalizedEmail = normalizeEmail(email);
     const normalizedRole = String(role).trim().toLowerCase();
+
+    if (!normalizedEmail) {
+      return res.status(400).json({ message: 'Email, password, and role are required.' });
+    }
+
+    if (!isValidEmail(normalizedEmail)) {
+      return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
 
     if (!CREATABLE_ROLES.has(normalizedRole)) {
       return res.status(400).json({ message: 'Role must be viewer or srd_holder.' });

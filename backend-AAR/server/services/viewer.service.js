@@ -45,14 +45,16 @@ function buildHierarchy(rows) {
 
 const ViewerService = {
   async getOptions() {
-    const [tankers, receivers] = await Promise.all([
+    const [tankers, receivers, specificationOptions] = await Promise.all([
       ViewerModel.getTankers(),
-      ViewerModel.getReceivers()
+      ViewerModel.getReceivers(),
+      ViewerModel.getSpecificationOptions()
     ]);
 
     return {
       tanker: buildHierarchy(tankers),
-      receiver: buildHierarchy(receivers)
+      receiver: buildHierarchy(receivers),
+      specification: specificationOptions
     };
   },
 
