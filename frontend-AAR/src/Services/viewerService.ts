@@ -1,4 +1,4 @@
-// This service loads the viewer dropdown options and search results from the backend.
+// This service loads viewer data and exposes shared API request helpers for authenticated frontend calls.
 import { getStoredAuthToken } from './authService'
 
 export type ViewerPayload = {
@@ -39,6 +39,11 @@ export type NationOptionTree = {
 export type ViewerOptionsResponse = {
   tanker: NationOptionTree
   receiver: NationOptionTree
+  specification: {
+    cTanker: string[]
+    cReceiver: string[]
+    refuellingInterface: string[]
+  }
 }
 
 export type ViewerSearchResponse = {
@@ -52,7 +57,7 @@ type ViewerResponse = {
 }
 
 // Builds headers and adds Authorization when a token exists.
-function buildHeaders(includeJsonContentType = false): HeadersInit {
+export function buildHeaders(includeJsonContentType = false): HeadersInit {
   const token = getStoredAuthToken()
   const headers: Record<string, string> = {}
 
@@ -68,7 +73,7 @@ function buildHeaders(includeJsonContentType = false): HeadersInit {
 }
 
 // Gets an error message from the response, or uses a fallback.
-async function getErrorMessage(response: Response, fallback: string) {
+export async function getErrorMessage(response: Response, fallback: string) {
   try {
     const data = (await response.json()) as { error?: string; message?: string }
     return data.error ?? data.message ?? fallback
