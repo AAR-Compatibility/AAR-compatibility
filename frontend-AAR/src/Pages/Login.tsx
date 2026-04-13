@@ -188,6 +188,21 @@ export default function Login() {
     setLoginError('')
   }
 
+  const handleHeaderHome = () => {
+    if (currentUser && (activeRole === 'srd_holder' || viewerReturnRole === 'srd_holder')) {
+      setActiveRole('srd_holder')
+      setSrdView('home')
+      setStep('dashboard')
+      setViewerReturnRole(null)
+      setLoginError('')
+      window.location.hash = '#/'
+      return
+    }
+
+    window.location.hash = '#/'
+    handleReset()
+  }
+
   // Opens the dedicated admin page to create a new account.
   const handleCreateAccount = () => {
     if (activeRole !== 'admin') return
@@ -254,7 +269,7 @@ export default function Login() {
 
   return (
     <div className="login-shell">
-      <Header />
+      <Header onHome={handleHeaderHome} />
       <main className={showRolePage || step === 'create-account' ? 'role-main' : 'login-main'}>
         {isRestoringSession ? (
           <section className="login-card" aria-live="polite">

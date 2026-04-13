@@ -1,18 +1,16 @@
-// This page lets an admin review one submission in a popup and edit it directly in the popup form before approving, rejecting, or deleting it.
-import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
+// This page lets an admin review submitted change requests, compare old and new values,
+// reject them with comments, approve them, and process approved requests into live data.
+import { useEffect, useMemo, useState } from 'react'
 import '../Styles/role-pages.css'
 import {
-  deleteSubmission,
-  loadSubmissions,
-  updateSubmission,
-  updateSubmissionStatus,
-  type SRD_holderFormValues,
+  approveSubmission,
+  deleteAdminSubmission,
+  fetchAdminSubmissions,
+  processSubmission,
+  rejectSubmission,
+  type SubmissionBaselineSnapshot,
   type SRD_holderSubmission,
 } from '../Services/submissionService'
-import {
-  fetchViewerOptions,
-  type ViewerOptionsResponse,
-} from '../Services/viewerService'
 
 type AdminPageProps = {
   currentUser: import('../Services/authService').AuthUser | null
@@ -21,10 +19,181 @@ type AdminPageProps = {
   onCreateAccount: () => void
 }
 
-const REFUEL_INTERFACE_OPTIONS = ['Boom', 'Pod', 'HDU', 'Centre Line (CL)']
-const C_CATEGORY_OPTIONS = ['Cat-1', 'Cat-2', 'Cat-3']
+type DiffFieldConfig = {
+  key: keyof SubmissionBaselineSnapshot | keyof SRD_holderSubmission
+  label: string
+}
 
-// Render the Admin review page.
+const TANKER_FIELDS: DiffFieldConfig[] = [
+  { key: 'nationOrganisation', label: 'Tanker Nation' },
+  { key: 'tankerType', label: 'Tanker Type' },
+  { key: 'tankerModel', label: 'Tanker Model' },
+]
+
+const RECEIVER_FIELDS: DiffFieldConfig[] = [
+  { key: 'receiverNation', label: 'Receiver Nation' },
+  { key: 'receiverType', label: 'Receiver Type' },
+  { key: 'receiverModel', label: 'Receiver Model' },
+]
+
+const SPECIFICATION_FIELDS: DiffFieldConfig[] = [
+  { key: 'cTanker', label: 'C_tanker' },
+  { key: 'cReciever', label: 'C_receiver' },
+  { key: 'vSrdT', label: 'V_srd_tanker' },
+  { key: 'vSrdR', label: 'V_srd_receiver' },
+  { key: 'refuellingInterface', label: 'Boom_pod_bda' },
+  { key: 'minimumFlightLevel', label: 'Min_Alt' },
+  { key: 'maximumFlightLevel', label: 'Max_Alt' },
+  { key: 'minimumKcas', label: 'Min_as_kcas' },
+  { key: 'maximumKcas', label: 'Max_as_kcas' },
+  { key: 'maxAsM', label: 'Max_as_m' },
+  { key: 'planningFuelTransferRate', label: 'Fuel flow rate' },
+]
+
+function formatDate(value: string) {
+  if (!value) {
+    return '-'
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return parsed.toLocaleString()
+}
+
+function getStatusClass(statusKey: SRD_holderSubmission['statusKey']) {
+  if (statusKey === 'processed') {
+    return 'status-tag--approved'
+  }
+  if (statusKey === 'approved') {
+    return 'status-tag--reviewed'
+  }
+  if (statusKey === 'rejected' || statusKey === 'processing_failed') {
+    return 'status-tag--rejected'
+  }
+  return 'status-tag--pending'
+}
+
+function formatRequestLabel(submission: SRD_holderSubmission) {
+  if (submission.requestType === 'create') {
+    return submission.requestTarget === 'tanker' ? 'New Tanker' : 'New Receiver'
+  }
+  if (submission.requestType === 'delete') {
+    return 'Delete Pairing'
+  }
+  return submission.requestTarget === 'tanker'
+    ? 'Update Tanker Side'
+    : submission.requestTarget === 'receiver'
+      ? 'Update Receiver Side'
+      : 'Update Pairing'
+}
+
+function valueAsText(value: unknown) {
+  if (value === null || value === undefined) {
+    return '-'
+  }
+  const text = String(value).trim()
+  return text.length > 0 ? text : '-'
+}
+
+const REFUEL_INTERFACE_LABELS: Record<string, string> = {
+  B: 'Boom',
+  P: 'Pod',
+  HDU: 'HDU',
+  CL: 'Centre Line',
+}
+
+function normalizeCCategory(value: string) {
+  const match = value.match(/^Cat-(\d+)$/i)
+  return match ? match[1] : value
+}
+
+function normalizeRefuelInterface(value: string) {
+  const normalized = value.trim()
+  const upper = normalized.toUpperCase()
+
+  if (upper === 'BOOM') return 'B'
+  if (upper === 'POD') return 'P'
+  if (upper === 'CENTRE LINE (CL)' || upper === 'CENTRE LINE') return 'CL'
+
+  return normalized
+}
+
+function formatDiffValue(key: DiffFieldConfig['key'], value: unknown) {
+  const text = valueAsText(value)
+  if (text === '-') {
+    return text
+  }
+
+  if (key === 'cTanker' || key === 'cReciever') {
+    return normalizeCCategory(text)
+  }
+
+  if (key === 'refuellingInterface') {
+    const code = normalizeRefuelInterface(text)
+    const label = REFUEL_INTERFACE_LABELS[code]
+    return label ? `${code} (${label})` : code
+  }
+
+  return text
+}
+
+function getFieldConfigs(submission: SRD_holderSubmission) {
+  if (submission.requestType === 'create') {
+    return submission.requestTarget === 'tanker' ? TANKER_FIELDS : RECEIVER_FIELDS
+  }
+
+  if (submission.requestTarget === 'tanker') {
+    return [...TANKER_FIELDS, ...RECEIVER_FIELDS, ...SPECIFICATION_FIELDS.filter((field) => field.key !== 'cReciever' && field.key !== 'vSrdR')]
+  }
+
+  if (submission.requestTarget === 'receiver') {
+    return [...TANKER_FIELDS, ...RECEIVER_FIELDS, ...SPECIFICATION_FIELDS.filter((field) => field.key !== 'cTanker' && field.key !== 'vSrdT')]
+  }
+
+  return [...TANKER_FIELDS, ...RECEIVER_FIELDS, ...SPECIFICATION_FIELDS]
+}
+
+function getRequestedValue(submission: SRD_holderSubmission, key: DiffFieldConfig['key']) {
+  if (submission.requestType === 'delete') {
+    return 'Removed'
+  }
+  return formatDiffValue(key, submission[key as keyof SRD_holderSubmission])
+}
+
+function getBaselineValue(
+  snapshot: SubmissionBaselineSnapshot,
+  key: DiffFieldConfig['key'],
+  requestType: SRD_holderSubmission['requestType'],
+) {
+  if (requestType === 'create') {
+    return 'New'
+  }
+  return formatDiffValue(key, snapshot[key as keyof SubmissionBaselineSnapshot])
+}
+
+function isChangedField(
+  submission: SRD_holderSubmission,
+  key: DiffFieldConfig['key'],
+) {
+  return (
+    getBaselineValue(submission.baselineSnapshot, key, submission.requestType) !==
+    getRequestedValue(submission, key)
+  )
+}
+
+// Hides review-only controls once a request has already been fully processed.
+function shouldShowReviewControls(statusKey: SRD_holderSubmission['statusKey']) {
+  return statusKey !== 'processed'
+}
+
+// Allows admin deletion for every request except fully processed requests.
+function canDeleteSubmission(statusKey: SRD_holderSubmission['statusKey']) {
+  return statusKey !== 'processed'
+}
+
 export default function AdminPage({
   currentUser,
   onLogout,
@@ -32,689 +201,142 @@ export default function AdminPage({
   onCreateAccount,
 }: AdminPageProps) {
   const userDisplayName = currentUser?.name?.trim() || currentUser?.email || 'Unknown user'
-  const [submissions, setSubmissions] = useState<SRD_holderSubmission[]>(() =>
-    loadSubmissions(),
-  )
-  const [editingId, setEditingId] = useState<string | null>(null)
-  const [editValues, setEditValues] = useState<SRD_holderFormValues | null>(null)
-  const [editError, setEditError] = useState('')
-  const [options, setOptions] = useState<ViewerOptionsResponse | null>(null)
-  const [isLoadingOptions, setIsLoadingOptions] = useState(true)
+  const [submissions, setSubmissions] = useState<SRD_holderSubmission[]>([])
   const [activeSubmissionId, setActiveSubmissionId] = useState<string | null>(null)
-
-  const resetEditState = () => {
-    setEditingId(null)
-    setEditValues(null)
-    setEditError('')
-  }
-
-  const handleOpenSubmission = (submission: SRD_holderSubmission) => {
-    if (editingId && editingId !== submission.id) {
-      resetEditState()
-    }
-    setActiveSubmissionId(submission.id)
-  }
-
-  const handleCloseSubmission = () => {
-    setActiveSubmissionId(null)
-    resetEditState()
-  }
+  const [isLoading, setIsLoading] = useState(true)
+  const [pageError, setPageError] = useState('')
+  const [reviewComment, setReviewComment] = useState('')
+  const [isRunningAction, setIsRunningAction] = useState(false)
 
   useEffect(() => {
     let isMounted = true
 
-    const loadOptions = async () => {
-      setIsLoadingOptions(true)
+    const load = async () => {
+      setIsLoading(true)
       try {
-        const fetchedOptions = await fetchViewerOptions()
+        const rows = await fetchAdminSubmissions()
         if (!isMounted) {
           return
         }
-        setOptions(fetchedOptions)
-        setEditError('')
+        setSubmissions(rows)
+        setPageError('')
       } catch (error) {
         if (!isMounted) {
           return
         }
-        setEditError(
-          error instanceof Error ? error.message : 'Failed to load dropdown options.',
-        )
+        setPageError(error instanceof Error ? error.message : 'Failed to load requests.')
       } finally {
         if (isMounted) {
-          setIsLoadingOptions(false)
+          setIsLoading(false)
         }
       }
     }
 
-    void loadOptions()
+    void load()
 
     return () => {
       isMounted = false
     }
   }, [])
 
-  // Mark one submission as approved.
-  const handleApprove = (id: string) => {
-    setSubmissions(updateSubmissionStatus(id, 'Approved'))
-    setActiveSubmissionId((prev) => (prev === id ? null : prev))
-  }
-
-  // Mark one submission as rejected.
-  const handleReject = (id: string) => {
-    setSubmissions(updateSubmissionStatus(id, 'Rejected'))
-    setActiveSubmissionId((prev) => (prev === id ? null : prev))
-  }
-
-  // Remove one submission from the admin list.
-  const handleDelete = (id: string) => {
-    setSubmissions(deleteSubmission(id))
-    if (editingId === id) {
-      resetEditState()
-    }
-    setActiveSubmissionId((prev) => (prev === id ? null : prev))
-  }
-
-  // Start editing one submission in the admin form.
-  const handleStartEdit = (submission: SRD_holderSubmission) => {
-    const { id, status, createdAt, ...values } = submission
-    void id
-    void status
-    void createdAt
-    setEditingId(submission.id)
-    setEditValues(values)
-    setEditError('')
-    setActiveSubmissionId(submission.id)
-  }
-
-  // Track admin changes in the edit form.
-  const handleEditChange = (
-    event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
-  ) => {
-    const { name, value } = event.target
-    setEditValues((prev) => {
-      if (!prev) return prev
-      if (name === 'nationOrganisation') {
-        return { ...prev, nationOrganisation: value, tankerType: '', tankerModel: '' }
-      }
-      if (name === 'tankerType') {
-        return { ...prev, tankerType: value, tankerModel: '' }
-      }
-      if (name === 'receiverNation') {
-        return { ...prev, receiverNation: value, receiverType: '', receiverModel: '' }
-      }
-      if (name === 'receiverType') {
-        return { ...prev, receiverType: value, receiverModel: '' }
-      }
-      return { ...prev, [name]: value }
-    })
-  }
-
-  // Save all admin edits for the selected submission.
-  const handleSaveEdit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (!editingId || !editValues) return
-    const requiredFields =
-      editValues.requestMode === 'new'
-        ? editValues.requestTarget === 'tanker'
-          ? ['requestTarget', 'requestMode', 'nationOrganisation', 'tankerType', 'tankerModel', 'comment']
-          : ['requestTarget', 'requestMode', 'receiverNation', 'receiverType', 'receiverModel', 'comment']
-        : editValues.requestTarget === 'tanker'
-          ? [
-              'requestTarget',
-              'requestMode',
-              'nationOrganisation',
-              'tankerType',
-              'tankerModel',
-              'receiverNation',
-              'receiverType',
-              'receiverModel',
-              'cTanker',
-              'vSrdT',
-              'refuellingInterface',
-              'minimumFlightLevel',
-              'maximumFlightLevel',
-              'minimumKcas',
-              'maximumKcas',
-              'maxAsM',
-              'planningFuelTransferRate',
-              'comment',
-            ]
-          : editValues.requestTarget === 'receiver'
-            ? [
-                'requestTarget',
-                'requestMode',
-                'nationOrganisation',
-                'tankerType',
-                'tankerModel',
-                'receiverNation',
-                'receiverType',
-                'receiverModel',
-                'cReciever',
-                'vSrdR',
-                'refuellingInterface',
-                'minimumFlightLevel',
-                'maximumFlightLevel',
-                'minimumKcas',
-                'maximumKcas',
-                'maxAsM',
-                'planningFuelTransferRate',
-                'comment',
-              ]
-            : [
-              'requestTarget',
-              'requestMode',
-              'nationOrganisation',
-              'tankerType',
-              'tankerModel',
-              'receiverNation',
-              'receiverType',
-              'receiverModel',
-              'cTanker',
-              'cReciever',
-              'vSrdT',
-              'vSrdR',
-              'refuellingInterface',
-              'minimumFlightLevel',
-              'maximumFlightLevel',
-              'minimumKcas',
-              'maximumKcas',
-              'maxAsM',
-              'planningFuelTransferRate',
-              'comment',
-            ]
-    const allFilled = requiredFields.every((field) => {
-      const value = editValues[field as keyof SRD_holderFormValues]
-      return typeof value === 'string' && value.trim().length > 0
-    })
-    if (!allFilled) {
-      setEditError('Fill in all fields before saving.')
-      return
-    }
-    setSubmissions(updateSubmission(editingId, editValues))
-    resetEditState()
-  }
-
-  // Exit edit mode without saving changes.
-  const handleCancelEdit = () => {
-    resetEditState()
-  }
-
   const activeSubmission =
     submissions.find((submission) => submission.id === activeSubmissionId) ?? null
 
-  function getSubmissionRole(submission: SRD_holderSubmission) {
-    if (
-      submission.requestTarget === 'tanker' ||
-      submission.requestTarget === 'receiver' ||
-      submission.requestTarget === 'both'
-    ) {
-      return submission.requestTarget
-    }
+  const diffFields = useMemo(
+    () => (activeSubmission ? getFieldConfigs(activeSubmission) : []),
+    [activeSubmission],
+  )
 
-    const hasTankerReviewData = Boolean(submission.cTanker || submission.vSrdT)
-    const hasReceiverReviewData = Boolean(submission.cReciever || submission.vSrdR)
-
-    if (hasTankerReviewData && hasReceiverReviewData) {
-      return 'both'
-    }
-
-    if (hasTankerReviewData && !hasReceiverReviewData) {
-      return 'tanker'
-    }
-
-    if (hasReceiverReviewData && !hasTankerReviewData) {
-      return 'receiver'
-    }
-
-    return null
+  const handleOpenSubmission = (submission: SRD_holderSubmission) => {
+    setActiveSubmissionId(submission.id)
+    setReviewComment(submission.reviewComment || '')
+    setPageError('')
   }
 
-  const activeSubmissionRole = activeSubmission
-    ? getSubmissionRole(activeSubmission)
-    : null
-  const isEditingActiveSubmission =
-    Boolean(editValues) && Boolean(activeSubmissionId) && editingId === activeSubmissionId
-  const isNewEditRequest = editValues?.requestMode === 'new'
-  const isNewActiveRequest = activeSubmission?.requestMode === 'new'
+  const handleCloseSubmission = () => {
+    setActiveSubmissionId(null)
+    setReviewComment('')
+  }
 
-  const tankerNationOptions = useMemo(
-    () => options?.tanker.nations ?? [],
-    [options],
-  )
-
-  const tankerTypeOptions = useMemo(() => {
-    if (!options || !editValues?.nationOrganisation) return []
-    return options.tanker.byNation[editValues.nationOrganisation]?.types ?? []
-  }, [options, editValues])
-
-  const tankerModelOptions = useMemo(() => {
-    if (!options || !editValues?.nationOrganisation || !editValues.tankerType) return []
-    return (
-      options.tanker.byNation[editValues.nationOrganisation]?.modelsByType[
-        editValues.tankerType
-      ] ?? []
+  const replaceSubmission = (nextSubmission: SRD_holderSubmission) => {
+    setSubmissions((prevSubmissions) =>
+      prevSubmissions.map((submission) =>
+        submission.id === nextSubmission.id ? nextSubmission : submission,
+      ),
     )
-  }, [options, editValues])
+    setActiveSubmissionId(nextSubmission.id)
+    setReviewComment(nextSubmission.reviewComment || '')
+  }
 
-  const receiverNationOptions = useMemo(
-    () => options?.receiver.nations ?? [],
-    [options],
-  )
+  const handleApprove = async () => {
+    if (!activeSubmission) {
+      return
+    }
 
-  const receiverTypeOptions = useMemo(() => {
-    if (!options || !editValues?.receiverNation) return []
-    return options.receiver.byNation[editValues.receiverNation]?.types ?? []
-  }, [options, editValues])
+    setIsRunningAction(true)
+    setPageError('')
+    try {
+      const nextSubmission = await approveSubmission(activeSubmission.id)
+      replaceSubmission(nextSubmission)
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Failed to approve request.')
+    } finally {
+      setIsRunningAction(false)
+    }
+  }
 
-  const receiverModelOptions = useMemo(() => {
-    if (!options || !editValues?.receiverNation || !editValues.receiverType) return []
-    return (
-      options.receiver.byNation[editValues.receiverNation]?.modelsByType[
-        editValues.receiverType
-      ] ?? []
-    )
-  }, [options, editValues])
+  const handleReject = async () => {
+    if (!activeSubmission) {
+      return
+    }
 
-  const renderEditForm = () => {
-    if (!editValues) return null
+    setIsRunningAction(true)
+    setPageError('')
+    try {
+      const nextSubmission = await rejectSubmission(activeSubmission.id, reviewComment)
+      replaceSubmission(nextSubmission)
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Failed to reject request.')
+    } finally {
+      setIsRunningAction(false)
+    }
+  }
 
-    return (
-      <form className="srd_holder-form" onSubmit={handleSaveEdit}>
-        <div className="role-card__header">
-          <h2>Edit Form</h2>
-          <span className="role-card__meta">ID: {editingId}</span>
-        </div>
-        <div className="srd_holder-form__grid">
-          {editValues.requestTarget === 'tanker' || !isNewEditRequest ? (
-            <>
-              <label className="input-group">
-                Nation / Org.
-                {editValues.requestTarget === 'tanker' && isNewEditRequest ? (
-                  <input
-                    type="text"
-                    name="nationOrganisation"
-                    value={editValues.nationOrganisation}
-                    onChange={handleEditChange}
-                    required
-                  />
-                ) : (
-                  <select
-                    name="nationOrganisation"
-                    value={editValues.nationOrganisation}
-                    onChange={handleEditChange}
-                    required
-                    disabled={isLoadingOptions}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {tankerNationOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-              <label className="input-group">
-                T type
-                {editValues.requestTarget === 'tanker' && isNewEditRequest ? (
-                  <input
-                    type="text"
-                    name="tankerType"
-                    value={editValues.tankerType}
-                    onChange={handleEditChange}
-                    required
-                  />
-                ) : (
-                  <select
-                    name="tankerType"
-                    value={editValues.tankerType}
-                    onChange={handleEditChange}
-                    required
-                    disabled={isLoadingOptions || !editValues.nationOrganisation}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {tankerTypeOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-              <label className="input-group">
-                T model
-                {editValues.requestTarget === 'tanker' && isNewEditRequest ? (
-                  <input
-                    type="text"
-                    name="tankerModel"
-                    value={editValues.tankerModel}
-                    onChange={handleEditChange}
-                    required
-                  />
-                ) : (
-                  <select
-                    name="tankerModel"
-                    value={editValues.tankerModel}
-                    onChange={handleEditChange}
-                    required
-                    disabled={isLoadingOptions || !editValues.tankerType}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {tankerModelOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-            </>
-          ) : null}
-          {editValues.requestTarget === 'receiver' || !isNewEditRequest ? (
-            <>
-              <label className="input-group">
-                R nation
-                {editValues.requestTarget === 'receiver' && isNewEditRequest ? (
-                  <input
-                    type="text"
-                    name="receiverNation"
-                    value={editValues.receiverNation}
-                    onChange={handleEditChange}
-                    required
-                  />
-                ) : (
-                  <select
-                    name="receiverNation"
-                    value={editValues.receiverNation}
-                    onChange={handleEditChange}
-                    required
-                    disabled={isLoadingOptions}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {receiverNationOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-              <label className="input-group">
-                R type
-                {editValues.requestTarget === 'receiver' && isNewEditRequest ? (
-                  <input
-                    type="text"
-                    name="receiverType"
-                    value={editValues.receiverType}
-                    onChange={handleEditChange}
-                    required
-                  />
-                ) : (
-                  <select
-                    name="receiverType"
-                    value={editValues.receiverType}
-                    onChange={handleEditChange}
-                    required
-                    disabled={isLoadingOptions || !editValues.receiverNation}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {receiverTypeOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-              <label className="input-group">
-                R model
-                {editValues.requestTarget === 'receiver' && isNewEditRequest ? (
-                  <input
-                    type="text"
-                    name="receiverModel"
-                    value={editValues.receiverModel}
-                    onChange={handleEditChange}
-                    required
-                  />
-                ) : (
-                  <select
-                    name="receiverModel"
-                    value={editValues.receiverModel}
-                    onChange={handleEditChange}
-                    required
-                    disabled={isLoadingOptions || !editValues.receiverType}
-                  >
-                    <option value="" disabled>
-                      Select
-                    </option>
-                    {receiverModelOptions.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                )}
-              </label>
-            </>
-          ) : null}
-          {!isNewEditRequest ? (
-            <>
-              {editValues.requestTarget === 'tanker' ? (
-                <>
-                  <label className="input-group">
-                    C_tanker
-                    <select
-                      name="cTanker"
-                      value={editValues.cTanker}
-                      onChange={handleEditChange}
-                      required
-                    >
-                      <option value="" disabled>
-                        Select
-                      </option>
-                      {C_CATEGORY_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="input-group">
-                    V_srd_T
-                    <input
-                      type="text"
-                      name="vSrdT"
-                      value={editValues.vSrdT}
-                      onChange={handleEditChange}
-                      required
-                    />
-                  </label>
-                </>
-              ) : editValues.requestTarget === 'receiver' ? (
-                <>
-                  <label className="input-group">
-                    C_reciever
-                    <select
-                      name="cReciever"
-                      value={editValues.cReciever}
-                      onChange={handleEditChange}
-                      required
-                    >
-                      <option value="" disabled>
-                        Select
-                      </option>
-                      {C_CATEGORY_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="input-group">
-                    V_srd_R
-                    <input
-                      type="text"
-                      name="vSrdR"
-                      value={editValues.vSrdR}
-                      onChange={handleEditChange}
-                      required
-                    />
-                  </label>
-                </>
-              ) : (
-                <>
-                  <label className="input-group">
-                    C_tanker
-                    <select
-                      name="cTanker"
-                      value={editValues.cTanker}
-                      onChange={handleEditChange}
-                      required
-                    >
-                      <option value="" disabled>
-                        Select
-                      </option>
-                      {C_CATEGORY_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="input-group">
-                    C_reciever
-                    <select
-                      name="cReciever"
-                      value={editValues.cReciever}
-                      onChange={handleEditChange}
-                      required
-                    >
-                      <option value="" disabled>
-                        Select
-                      </option>
-                      {C_CATEGORY_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="input-group">
-                    V_srd_T
-                    <input
-                      type="text"
-                      name="vSrdT"
-                      value={editValues.vSrdT}
-                      onChange={handleEditChange}
-                      required
-                    />
-                  </label>
-                  <label className="input-group">
-                    V_srd_R
-                    <input
-                      type="text"
-                      name="vSrdR"
-                      value={editValues.vSrdR}
-                      onChange={handleEditChange}
-                      required
-                    />
-                  </label>
-                </>
-              )}
-              <label className="input-group">
-                Refuel interface
-                <select
-                  name="refuellingInterface"
-                  value={editValues.refuellingInterface}
-                  onChange={handleEditChange}
-                  required
-                >
-                  <option value="" disabled>
-                    Select
-                  </option>
-                  {REFUEL_INTERFACE_OPTIONS.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="input-group">
-                Min FL
-                <input
-                  type="text"
-                  name="minimumFlightLevel"
-                  value={editValues.minimumFlightLevel}
-                  onChange={handleEditChange}
-                  required
-                />
-              </label>
-              <label className="input-group">
-                Max FL
-                <input
-                  type="text"
-                  name="maximumFlightLevel"
-                  value={editValues.maximumFlightLevel}
-                  onChange={handleEditChange}
-                  required
-                />
-              </label>
-              <label className="input-group">
-                Min KCAS
-                <input type="text" name="minimumKcas" value={editValues.minimumKcas} onChange={handleEditChange} required />
-              </label>
-              <label className="input-group">
-                Max KCAS
-                <input type="text" name="maximumKcas" value={editValues.maximumKcas} onChange={handleEditChange} required />
-              </label>
-              <label className="input-group">
-                Max_as_m
-                <input type="text" name="maxAsM" value={editValues.maxAsM} onChange={handleEditChange} required />
-              </label>
-              <label className="input-group">
-                Fuel rate
-                <input
-                  type="text"
-                  name="planningFuelTransferRate"
-                  value={editValues.planningFuelTransferRate}
-                  onChange={handleEditChange}
-                  required
-                />
-              </label>
-            </>
-          ) : null}
-          <label className="input-group">
-            Comment
-            <textarea
-              name="comment"
-              value={editValues.comment}
-              onChange={handleEditChange}
-              maxLength={150}
-              required
-            />
-          </label>
-        </div>
-        {editError && <p className="viewer-error">{editError}</p>}
-        <div className="admin-review-actions">
-          <button className="btn ghost" type="button" onClick={handleCancelEdit}>
-            Cancel
-          </button>
-          <button className="btn primary" type="submit">
-            Save Changes
-          </button>
-        </div>
-      </form>
-    )
+  const handleProcess = async () => {
+    if (!activeSubmission) {
+      return
+    }
+
+    setIsRunningAction(true)
+    setPageError('')
+    try {
+      const nextSubmission = await processSubmission(activeSubmission.id)
+      replaceSubmission(nextSubmission)
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Failed to process request.')
+    } finally {
+      setIsRunningAction(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!activeSubmission || !canDeleteSubmission(activeSubmission.statusKey)) {
+      return
+    }
+
+    setIsRunningAction(true)
+    setPageError('')
+    try {
+      await deleteAdminSubmission(activeSubmission.id)
+      setSubmissions((prevSubmissions) =>
+        prevSubmissions.filter((submission) => submission.id !== activeSubmission.id),
+      )
+      handleCloseSubmission()
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : 'Failed to delete request.')
+    } finally {
+      setIsRunningAction(false)
+    }
   }
 
   return (
@@ -722,22 +344,23 @@ export default function AdminPage({
       <header className="role-page__header">
         <div>
           <span className="role-pill">Admin</span>
-          <h1 className="role-page__title">Current user: {userDisplayName}</h1>
+          <h1 className="role-page__title">Admin Review</h1>
+          <p className="viewer-intro">Signed in as {userDisplayName}</p>
         </div>
         <div className="role-header-controls">
-          <button className="btn ghost" type="button" onClick={onLogout}>
-            Logout
-          </button>
-          <section className="role-quick-actions" aria-label="Admin actions">      
+          <div className="button-row">
+            <button className="btn ghost" type="button" onClick={onCreateAccount}>
+              Create Account
+            </button>
+            <button className="btn ghost" type="button" onClick={onLogout}>
+              Logout
+            </button>
+          </div>
+          <section className="role-quick-actions" aria-label="Admin actions">
             <ul className="role-quick-actions__list">
               <li>
                 <button className="role-quick-actions__link" type="button" onClick={onOpenViewer}>
                   Go to Viewer
-                </button>
-              </li>
-              <li>
-                <button className="role-quick-actions__link" type="button" onClick={onCreateAccount}>
-                  Create Account
                 </button>
               </li>
             </ul>
@@ -747,162 +370,57 @@ export default function AdminPage({
 
       <section className="role-card">
         <p className="viewer-intro">
-          Review incoming srd_holder forms and approve or reject them.
+          Review SRD holder requests, compare old and new values, then approve, reject, or process
+          them into live data.
         </p>
-        {submissions.length === 0 ? (
-          <p className="muted">No forms submitted yet.</p>
+        {pageError && <p className="viewer-error">{pageError}</p>}
+
+        {isLoading ? (
+          <p className="viewer-intro">Loading change requests...</p>
+        ) : submissions.length === 0 ? (
+          <p className="viewer-intro">No change requests are waiting for review.</p>
         ) : (
           <div className="table-wrap">
             <table className="srd_holder-table">
-              <colgroup>
-                <col className="col-number" />
-                <col className="col-nation" />
-                <col className="col-type" />
-                <col className="col-model" />
-                <col className="col-nation" />
-                <col className="col-type" />
-                <col className="col-model" />
-                <col className="col-minfl" />
-                <col className="col-minfl" />
-                <col className="col-minfl" />
-                <col className="col-minfl" />
-                <col className="col-refuel" />
-                <col className="col-minfl" />
-                <col className="col-maxfl" />
-                <col className="col-minkcas" />
-                <col className="col-maxkcas" />
-                <col className="col-maxkcas" />
-                <col className="col-fuel" />
-                <col className="col-fuel" />
-                <col className="col-status" />
-                <col className="col-actions" />
-              </colgroup>
               <thead>
                 <tr>
-                  <th>Nr</th>
-                  <th>
-                    <span title="Nation / Organisation">Nation/Org</span>
-                  </th>
-                  <th>
-                    <span title="Tanker aircraft type">T type</span>
-                  </th>
-                  <th>
-                    <span title="Tanker aircraft model">T model</span>
-                  </th>
-                  <th>
-                    <span title="Receiver nation / organisation">R nation</span>
-                  </th>
-                  <th>
-                    <span title="Receiver aircraft type">R type</span>
-                  </th>
-                  <th>
-                    <span title="Receiver aircraft model">R model</span>
-                  </th>
-                  <th>
-                    <span title="Compatibility tanker code">C_tanker</span>
-                  </th>
-                  <th>
-                    <span title="Compatibility receiver code">C_reciever</span>
-                  </th>
-                  <th>
-                    <span title="Valid SRD tanker">V_srd_T</span>
-                  </th>
-                  <th>
-                    <span title="Valid SRD receiver">V_srd_R</span>
-                  </th>
-                  <th>
-                    <span title="Refuelling interface type">Refuel IF</span>
-                  </th>
-                  <th>
-                    <span title="Minimum altitude Flight Level">Min FL</span>
-                  </th>
-                  <th>
-                    <span title="Maximum altitude Flight Level">Max FL</span>
-                  </th>
-                  <th>
-                    <span title="Minimum speed KCAS">Min KCAS</span>
-                  </th>
-                  <th>
-                    <span title="Maximum speed KCAS">Max KCAS</span>
-                  </th>
-                  <th>
-                    <span title="Maximum speed Mach">Max_as_m</span>
-                  </th>
-                  <th>
-                    <span title="Planning fuel transfer rate">Fuel rate</span>
-                  </th>
-                  <th>
-                    <span title="Comment (max 150 characters)">Comment</span>
-                  </th>
-                  <th className="srd_holder-table__status">Status</th>
-                  <th>Action</th>
+                  <th className="col-number">Nr</th>
+                  <th>Request</th>
+                  <th>Submitted By</th>
+                  <th>Submitted</th>
+                  <th>Status</th>
+                  <th>Validation</th>
+                  <th className="col-actions">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {submissions.map((submission, index) => (
                   <tr key={submission.id}>
                     <td data-label="Nr">{index + 1}</td>
-                    <td data-label="Nation/Org">{submission.nationOrganisation}</td>
-                    <td data-label="T type">{submission.tankerType}</td>
-                    <td data-label="T model">{submission.tankerModel}</td>
-                    <td data-label="R nation">{submission.receiverNation}</td>
-                    <td data-label="R type">{submission.receiverType}</td>
-                    <td data-label="R model">{submission.receiverModel}</td>
-                    <td data-label="C_tanker">{submission.cTanker}</td>
-                    <td data-label="C_reciever">{submission.cReciever}</td>
-                    <td data-label="V_srd_T">{submission.vSrdT}</td>
-                    <td data-label="V_srd_R">{submission.vSrdR}</td>
-                    <td data-label="Refuel IF">
-                      {submission.refuellingInterface}
+                    <td data-label="Request">
+                      <strong>{formatRequestLabel(submission)}</strong>
+                      <br />
+                      <span>{submission.comment || '-'}</span>
                     </td>
-                    <td data-label="Min FL">
-                      {submission.minimumFlightLevel}
+                    <td data-label="Submitted By">
+                      <strong>{submission.createdByName || 'Unknown user'}</strong>
+                      <br />
+                      <span>{submission.createdByEmail || '-'}</span>
                     </td>
-                    <td data-label="Max FL">
-                      {submission.maximumFlightLevel}
-                    </td>
-                    <td data-label="Min KCAS">{submission.minimumKcas}</td>
-                    <td data-label="Max KCAS">{submission.maximumKcas}</td>
-                    <td data-label="Max_as_m">{submission.maxAsM}</td>
-                    <td data-label="Fuel rate">
-                      {submission.planningFuelTransferRate}
-                    </td>
-                    <td data-label="Comment">{submission.comment}</td>
+                    <td data-label="Submitted">{formatDate(submission.submittedAt)}</td>
                     <td className="srd_holder-table__status" data-label="Status">
-                      <span
-                        className={`status-tag ${
-                            submission.status === 'Approved'
-                            ? 'status-tag--approved'
-                            : submission.status === 'Rejected'
-                              ? 'status-tag--rejected'
-                              : 'status-tag--pending'
-                        }`}
-                      >
+                      <span className={`status-tag ${getStatusClass(submission.statusKey)}`}>
                         {submission.status}
                       </span>
                     </td>
+                    <td data-label="Validation">{submission.validationSummary || '-'}</td>
                     <td data-label="Action">
                       <div className="admin-actions">
                         <button
-                          className={`btn ghost small admin-view-button ${
-                            getSubmissionRole(submission) === 'tanker'
-                              ? 'admin-view-button--tanker'
-                              : getSubmissionRole(submission) === 'receiver'
-                                ? 'admin-view-button--receiver'
-                                : getSubmissionRole(submission) === 'both'
-                                  ? 'admin-view-button--both'
-                                  : ''
-                          }`}
+                          className="btn ghost small admin-view-button"
                           type="button"
                           onClick={() => handleOpenSubmission(submission)}
                         >
-                          {getSubmissionRole(submission) === 'tanker' ? (
-                            <span className="admin-view-button__marker">T</span>
-                          ) : getSubmissionRole(submission) === 'receiver' ? (
-                            <span className="admin-view-button__marker">R</span>
-                          ) : getSubmissionRole(submission) === 'both' ? (
-                            <span className="admin-view-button__marker">B</span>
-                          ) : null}
                           View
                         </button>
                       </div>
@@ -914,7 +432,7 @@ export default function AdminPage({
           </div>
         )}
 
-        {activeSubmission && (
+        {activeSubmission ? (
           <div
             className="admin-review-modal"
             role="dialog"
@@ -922,256 +440,198 @@ export default function AdminPage({
             aria-labelledby="admin-review-title"
             onClick={handleCloseSubmission}
           >
-            <div
-                className={`admin-review-modal__panel ${
-                  activeSubmissionRole === 'tanker'
-                    ? 'admin-review-modal__panel--tanker'
-                  : activeSubmissionRole === 'receiver'
-                      ? 'admin-review-modal__panel--receiver'
-                    : activeSubmissionRole === 'both'
-                        ? 'admin-review-modal__panel--both'
-                      : ''
-                }`}
-              onClick={(event) => event.stopPropagation()}
-            >
+            <div className="admin-review-modal__panel" onClick={(event) => event.stopPropagation()}>
               <div className="admin-review-modal__header">
                 <div>
-                  <span
-                    className={`role-pill ${
-                      activeSubmissionRole === 'tanker'
-                        ? 'admin-review-pill--tanker'
-                      : activeSubmissionRole === 'receiver'
-                          ? 'admin-review-pill--receiver'
-                        : activeSubmissionRole === 'both'
-                            ? 'admin-review-pill--both'
-                          : ''
-                    }`}
-                  >
-                    Review
-                  </span>
+                  <span className="role-pill">Review</span>
                   <h2 id="admin-review-title" className="admin-review-modal__title">
-                    {activeSubmissionRole === 'tanker'
-                      ? 'Tanker Submission Review'
-                      : activeSubmissionRole === 'receiver'
-                        ? 'Receiver Submission Review'
-                        : activeSubmissionRole === 'both'
-                          ? 'Tanker and Receiver Submission Review'
-                        : 'Submission Review'}
+                    {formatRequestLabel(activeSubmission)}
                   </h2>
                 </div>
-                <button
-                  className="btn ghost small"
-                  type="button"
-                  onClick={handleCloseSubmission}
-                >
+                <button className="btn ghost small" type="button" onClick={handleCloseSubmission}>
                   Close
                 </button>
               </div>
 
               <div className="admin-review-modal__meta">
-                <span className="role-card__meta">ID: {activeSubmission.id}</span>
-                <span
-                  className={`status-tag ${
-                    activeSubmission.status === 'Approved'
-                      ? 'status-tag--approved'
-                      : activeSubmission.status === 'Rejected'
-                        ? 'status-tag--rejected'
-                        : 'status-tag--pending'
-                  }`}
-                >
+                <span className="role-card__meta">Request #{activeSubmission.id}</span>
+                <span className={`status-tag ${getStatusClass(activeSubmission.statusKey)}`}>
                   {activeSubmission.status}
                 </span>
               </div>
 
-              {isEditingActiveSubmission ? (
-                renderEditForm()
-              ) : (
-                <>
-                  <div className="admin-review-grid">
-                    {isNewActiveRequest ? (
-                      <>
-                        {activeSubmission.requestTarget === 'tanker' ? (
-                          <>
-                            <div className="admin-review-item">
-                              <span>Tanker Nation / Org</span>
-                              <strong>{activeSubmission.nationOrganisation}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>Tanker Type</span>
-                              <strong>{activeSubmission.tankerType}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>Tanker Model</span>
-                              <strong>{activeSubmission.tankerModel}</strong>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="admin-review-item">
-                              <span>Receiver Nation</span>
-                              <strong>{activeSubmission.receiverNation}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>Receiver Type</span>
-                              <strong>{activeSubmission.receiverType}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>Receiver Model</span>
-                              <strong>{activeSubmission.receiverModel}</strong>
-                            </div>
-                          </>
-                        )}
-                        <div className="admin-review-item">
-                          <span>Request Type</span>
-                          <strong>New {activeSubmission.requestTarget}</strong>
-                        </div>
-                        <div className="admin-review-item admin-review-item--wide">
-                          <span>Comment</span>
-                          <strong>{activeSubmission.comment}</strong>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="admin-review-item">
-                          <span>Tanker Nation / Org</span>
-                          <strong>{activeSubmission.nationOrganisation}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Tanker Type</span>
-                          <strong>{activeSubmission.tankerType}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Tanker Model</span>
-                          <strong>{activeSubmission.tankerModel}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Receiver Nation</span>
-                          <strong>{activeSubmission.receiverNation}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Receiver Type</span>
-                          <strong>{activeSubmission.receiverType}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Receiver Model</span>
-                          <strong>{activeSubmission.receiverModel}</strong>
-                        </div>
-                        {activeSubmissionRole === 'tanker' ? (
-                          <>
-                            <div className="admin-review-item">
-                              <span>C_tanker</span>
-                              <strong>{activeSubmission.cTanker}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>V_srd_T</span>
-                              <strong>{activeSubmission.vSrdT}</strong>
-                            </div>
-                          </>
-                        ) : activeSubmissionRole === 'receiver' ? (
-                          <>
-                            <div className="admin-review-item">
-                              <span>C_reciever</span>
-                              <strong>{activeSubmission.cReciever}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>V_srd_R</span>
-                              <strong>{activeSubmission.vSrdR}</strong>
-                            </div>
-                          </>
-                        ) : activeSubmissionRole === 'both' ? (
-                          <>
-                            <div className="admin-review-item">
-                              <span>C_tanker</span>
-                              <strong>{activeSubmission.cTanker}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>C_reciever</span>
-                              <strong>{activeSubmission.cReciever}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>V_srd_T</span>
-                              <strong>{activeSubmission.vSrdT}</strong>
-                            </div>
-                            <div className="admin-review-item">
-                              <span>V_srd_R</span>
-                              <strong>{activeSubmission.vSrdR}</strong>
-                            </div>
-                          </>
-                        ) : null}
-                        <div className="admin-review-item">
-                          <span>Refuel Interface</span>
-                          <strong>{activeSubmission.refuellingInterface}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Min FL</span>
-                          <strong>{activeSubmission.minimumFlightLevel}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Max FL</span>
-                          <strong>{activeSubmission.maximumFlightLevel}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Min KCAS</span>
-                          <strong>{activeSubmission.minimumKcas}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Max KCAS</span>
-                          <strong>{activeSubmission.maximumKcas}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Max_as_m</span>
-                          <strong>{activeSubmission.maxAsM}</strong>
-                        </div>
-                        <div className="admin-review-item">
-                          <span>Fuel Rate</span>
-                          <strong>{activeSubmission.planningFuelTransferRate}</strong>
-                        </div>
-                        <div className="admin-review-item admin-review-item--wide">
-                          <span>Comment</span>
-                          <strong>{activeSubmission.comment}</strong>
-                        </div>
-                      </>
-                    )}
-                  </div>
+              <div className="admin-review-grid">
+                <div className="admin-review-item">
+                  <span>Submitted By</span>
+                  <strong>{activeSubmission.createdByName || activeSubmission.createdByEmail || '-'}</strong>
+                </div>
+                <div className="admin-review-item">
+                  <span>Submitted At</span>
+                  <strong>{formatDate(activeSubmission.submittedAt)}</strong>
+                </div>
+                <div className="admin-review-item">
+                  <span>Reviewed By</span>
+                  <strong>{activeSubmission.reviewedByName || '-'}</strong>
+                </div>
+                <div className="admin-review-item admin-review-item--wide">
+                  <span>SRD Holder Comment</span>
+                  <strong>{activeSubmission.comment || '-'}</strong>
+                </div>
+              </div>
 
-                  <div className="admin-review-actions">
-                    <button
-                      className="btn ghost"
-                      type="button"
-                      onClick={() => handleStartEdit(activeSubmission)}
-                    >
-                      Edit
-                    </button>
-                    <button
-                      className="btn"
-                      type="button"
-                      onClick={() => handleApprove(activeSubmission.id)}
-                      disabled={activeSubmission.status === 'Approved'}
-                    >
-                      Approve
-                    </button>
-                    <button
-                      className="btn ghost"
-                      type="button"
-                      onClick={() => handleReject(activeSubmission.id)}
-                      disabled={activeSubmission.status === 'Rejected'}
-                    >
-                      Reject
-                    </button>
-                    <button
-                      className="btn ghost admin-review-actions__delete"
-                      type="button"
-                      onClick={() => handleDelete(activeSubmission.id)}
-                    >
-                      Delete
-                    </button>
+              <div className="admin-review-section">
+                <h3>Requested Change</h3>
+                <div className="table-wrap">
+                  <table className="srd_holder-table admin-diff-table">
+                    <thead>
+                      <tr>
+                        <th>Field</th>
+                        <th>Old</th>
+                        <th>New</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {diffFields.map((field) => {
+                        const changed = isChangedField(activeSubmission, field.key)
+
+                        return (
+                        <tr
+                          key={String(field.key)}
+                          className={changed ? 'admin-diff-row admin-diff-row--changed' : 'admin-diff-row'}
+                        >
+                          <td data-label="Field">{field.label}</td>
+                          <td
+                            data-label="Old"
+                            className={changed ? 'admin-diff-cell admin-diff-cell--changed' : undefined}
+                          >
+                            {getBaselineValue(
+                              activeSubmission.baselineSnapshot,
+                              field.key,
+                              activeSubmission.requestType,
+                            )}
+                          </td>
+                          <td
+                            data-label="New"
+                            className={changed ? 'admin-diff-cell admin-diff-cell--new' : undefined}
+                          >
+                            {getRequestedValue(activeSubmission, field.key)}
+                          </td>
+                        </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {shouldShowReviewControls(activeSubmission.statusKey) ? (
+                <div className="admin-validation-banner admin-validation-banner--attention">
+                  <strong>Please note!!!</strong>
+                  <span>
+                    {activeSubmission.requestType === 'delete'
+                      ? 'Processing this request will remove the specification for this selected tanker and receiver combination. Check the selected combination carefully before you process this request.'
+                      : 'There are requested changes in this submission. Check all highlighted differences carefully before you process this request into the live data.'}
+                  </span>
+                </div>
+              ) : null}
+
+              {activeSubmission.validationDetails.fieldConflicts.length > 0 ? (
+                <div className="admin-review-section">
+                  <h3>Live Mismatch Check</h3>
+                  <div className="table-wrap">
+                    <table className="srd_holder-table admin-diff-table">
+                      <thead>
+                        <tr>
+                          <th>Field</th>
+                          <th>Submitted Against</th>
+                          <th>Current Live Value</th>
+                          <th>Requested Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {activeSubmission.validationDetails.fieldConflicts.map((field) => (
+                          <tr key={field.field}>
+                            <td data-label="Field">{field.label}</td>
+                            <td data-label="Submitted Against">{valueAsText(field.baselineValue)}</td>
+                            <td data-label="Current Live Value">{valueAsText(field.currentValue)}</td>
+                            <td data-label="Requested Value">{valueAsText(field.requestedValue)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
-                </>
-              )}
+                </div>
+              ) : null}
+
+              {shouldShowReviewControls(activeSubmission.statusKey) ? (
+                <div className="admin-review-section">
+                  <h3>Reject Comment</h3>
+                  <label className="input-group input-group--wide">
+                    Admin Comment
+                    <textarea
+                      value={reviewComment}
+                      onChange={(event) => setReviewComment(event.target.value)}
+                      placeholder="Explain why this request is being sent back."
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {activeSubmission.processingError ? (
+                <p className="viewer-error">{activeSubmission.processingError}</p>
+              ) : null}
+
+              {activeSubmission.statusKey === 'pending_review' ? (
+                <p className="viewer-intro">
+                  Approve this request first. Processing becomes available only after approval.
+                </p>
+              ) : null}
+
+              <div className="admin-review-actions">
+                {canDeleteSubmission(activeSubmission.statusKey) ? (
+                  <button
+                    className="btn ghost admin-review-actions__delete"
+                    type="button"
+                    onClick={handleDelete}
+                    disabled={isRunningAction}
+                  >
+                    Delete
+                  </button>
+                ) : null}
+                <button
+                  className="btn"
+                  type="button"
+                  onClick={handleApprove}
+                  disabled={isRunningAction || activeSubmission.statusKey !== 'pending_review'}
+                >
+                  Approve
+                </button>
+                <button
+                  className="btn ghost"
+                  type="button"
+                  onClick={handleReject}
+                  disabled={
+                    isRunningAction ||
+                    reviewComment.trim().length === 0 ||
+                    !['pending_review', 'approved'].includes(activeSubmission.statusKey)
+                  }
+                >
+                  Reject
+                </button>
+                {activeSubmission.statusKey === 'approved' ? (
+                  <button
+                    className="btn primary"
+                    type="button"
+                    onClick={handleProcess}
+                    disabled={isRunningAction}
+                  >
+                    Process
+                  </button>
+                ) : null}
+              </div>
             </div>
           </div>
-        )}
-
+        ) : null}
       </section>
     </div>
   )

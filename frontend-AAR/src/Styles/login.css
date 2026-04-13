@@ -177,6 +177,12 @@
   border-color: #cbd5e1;
 }
 
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+
 .info-banner {
   display: grid;
   gap: 0.4rem;

@@ -1,13 +1,15 @@
-// This form supports existing and new tanker/receiver requests while reusing the same viewer dropdown data and submission flow.
+// This workspace lets an SRD holder submit new aircraft requests, update one live
+// specification, or request specification removal before an admin reviews it.
 import { useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react'
 import '../Styles/role-pages.css'
 import {
-  addSubmission,
-  loadSubmissions,
-  updateSubmission,
-  updateSubmissionStatus,
+  createSubmission,
+  deleteSubmission,
+  fetchOwnSubmissions,
+  updateRejectedSubmission,
   type SubmissionRequestMode,
   type SubmissionRequestTarget,
+  type SubmissionRequestType,
   type SRD_holderFormValues,
   type SRD_holderSubmission,
 } from '../Services/submissionService'
@@ -24,12 +26,16 @@ type SRDHolderFormWorkspaceProps = {
   onOpenMySrd: () => void
 }
 
+type PairingAction = 'update_pairing' | 'delete_pairing' | 'new_tanker' | 'new_receiver'
+
 function createEmptyForm(
   requestTarget: SubmissionRequestTarget,
   requestMode: SubmissionRequestMode = 'existing',
+  requestType?: SubmissionRequestType,
 ): SRD_holderFormValues {
   return {
     requestTarget,
+    requestType: requestType ?? (requestMode === 'new' ? 'create' : 'update'),
     requestMode,
     nationOrganisation: '',
     tankerType: '',
@@ -52,10 +58,114 @@ function createEmptyForm(
   }
 }
 
-const REFUEL_INTERFACE_OPTIONS = ['Boom', 'Pod', 'HDU', 'Centre Line (CL)']
-const C_CATEGORY_OPTIONS = ['Cat-1', 'Cat-2', 'Cat-3']
+const REFUEL_INTERFACE_LABELS: Record<string, string> = {
+  B: 'Boom',
+  P: 'Pod',
+  HDU: 'HDU',
+  CL: 'Centre Line',
+}
 
-// Shared form workspace for both Tankers and Receivers pages.
+function getCCategoryLabel(value: string) {
+  return value ? `${value} (Cat-${value})` : value
+}
+
+function getRefuelInterfaceLabel(value: string) {
+  const label = REFUEL_INTERFACE_LABELS[value]
+  return label ? `${value} (${label})` : value
+}
+
+function getStatusClass(statusKey: SRD_holderSubmission['statusKey']) {
+  if (statusKey === 'approved' || statusKey === 'processed') {
+    return 'status-tag--approved'
+  }
+  if (statusKey === 'rejected' || statusKey === 'processing_failed') {
+    return 'status-tag--rejected'
+  }
+  return 'status-tag--pending'
+}
+
+function formatDate(value: string) {
+  if (!value) {
+    return '-'
+  }
+
+  const parsedDate = new Date(value)
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value
+  }
+
+  return parsedDate.toLocaleString()
+}
+
+function formatRequestLabel(submission: SRD_holderSubmission) {
+  if (submission.requestType === 'create') {
+    return submission.requestTarget === 'tanker'
+      ? 'New Tanker'
+      : submission.requestTarget === 'receiver'
+        ? 'New Receiver'
+        : 'New Combination'
+  }
+
+  if (submission.requestType === 'delete') {
+    return 'Delete Pairing'
+  }
+
+  return submission.requestTarget === 'tanker'
+    ? 'Update Tanker Side'
+    : submission.requestTarget === 'receiver'
+      ? 'Update Receiver Side'
+      : 'Update Pairing'
+}
+
+function formatAircraftLine(nation: string, type: string, model: string) {
+  const parts = [nation, type, model].filter((value) => value.trim().length > 0)
+  return parts.length > 0 ? parts.join(' / ') : '-'
+}
+
+function getPairingAction(
+  requestTarget: SubmissionRequestTarget,
+  requestMode: SubmissionRequestMode,
+  requestType: SubmissionRequestType,
+): PairingAction {
+  if (requestMode === 'new') {
+    return requestTarget === 'receiver' ? 'new_receiver' : 'new_tanker'
+  }
+
+  return requestType === 'delete' ? 'delete_pairing' : 'update_pairing'
+}
+
+function getActionConfig(action: PairingAction) {
+  if (action === 'new_tanker') {
+    return {
+      requestTarget: 'tanker' as SubmissionRequestTarget,
+      requestMode: 'new' as SubmissionRequestMode,
+      requestType: 'create' as SubmissionRequestType,
+    }
+  }
+
+  if (action === 'new_receiver') {
+    return {
+      requestTarget: 'receiver' as SubmissionRequestTarget,
+      requestMode: 'new' as SubmissionRequestMode,
+      requestType: 'create' as SubmissionRequestType,
+    }
+  }
+
+  if (action === 'delete_pairing') {
+    return {
+      requestTarget: 'both' as SubmissionRequestTarget,
+      requestMode: 'existing' as SubmissionRequestMode,
+      requestType: 'delete' as SubmissionRequestType,
+    }
+  }
+
+  return {
+    requestTarget: 'both' as SubmissionRequestTarget,
+    requestMode: 'existing' as SubmissionRequestMode,
+    requestType: 'update' as SubmissionRequestType,
+  }
+}
+
 export default function SRDHolderFormWorkspace({
   pageTitle,
   workspaceTarget,
@@ -63,25 +173,36 @@ export default function SRDHolderFormWorkspace({
   onOpenViewer,
   onOpenMySrd,
 }: SRDHolderFormWorkspaceProps) {
+  const isBothWorkspace = workspaceTarget === 'both'
   const isTankersPage = workspaceTarget === 'tanker'
   const isReceiversPage = workspaceTarget === 'receiver'
   const pageRequestTarget: SubmissionRequestTarget = workspaceTarget
   const [formValues, setFormValues] = useState<SRD_holderFormValues>(() =>
     createEmptyForm(pageRequestTarget),
   )
-  const [submissions, setSubmissions] = useState<SRD_holderSubmission[]>(() =>
-    loadSubmissions(),
-  )
+  const [pairingAction, setPairingAction] = useState<PairingAction>('update_pairing')
+  const [submissions, setSubmissions] = useState<SRD_holderSubmission[]>([])
   const [editingId, setEditingId] = useState<string | null>(null)
   const [options, setOptions] = useState<ViewerOptionsResponse | null>(null)
   const [isLoadingOptions, setIsLoadingOptions] = useState(true)
+  const [isLoadingSubmissions, setIsLoadingSubmissions] = useState(true)
+  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [activeMessage, setActiveMessage] = useState('')
   const [optionsError, setOptionsError] = useState('')
+  const [submissionError, setSubmissionError] = useState('')
+
+  const activeRequestTarget = formValues.requestTarget
   const isNewRequest = formValues.requestMode === 'new'
-  const isNewTankerRequest = isTankersPage && isNewRequest
-  const isNewReceiverRequest = isReceiversPage && isNewRequest
-  const showTankerCompatibility = pageRequestTarget !== 'receiver' && !isNewRequest
-  const showReceiverCompatibility = pageRequestTarget !== 'tanker' && !isNewRequest
-  const showOperationalFields = !isNewRequest
+  const isDeleteRequest = formValues.requestType === 'delete'
+  const isNewTankerRequest =
+    (isTankersPage || isBothWorkspace) && activeRequestTarget === 'tanker' && isNewRequest
+  const isNewReceiverRequest =
+    (isReceiversPage || isBothWorkspace) && activeRequestTarget === 'receiver' && isNewRequest
+  const showTankerCompatibility =
+    activeRequestTarget !== 'receiver' && !isNewRequest && !isDeleteRequest
+  const showReceiverCompatibility =
+    activeRequestTarget !== 'tanker' && !isNewRequest && !isDeleteRequest
+  const showOperationalFields = !isNewRequest && !isDeleteRequest
   const showTankerSelection = !isNewReceiverRequest
   const showReceiverSelection = !isNewTankerRequest
 
@@ -111,17 +232,38 @@ export default function SRDHolderFormWorkspace({
       }
     }
 
+    const loadSubmissions = async () => {
+      setIsLoadingSubmissions(true)
+      try {
+        const fetchedSubmissions = await fetchOwnSubmissions()
+        if (!isMounted) {
+          return
+        }
+        setSubmissions(fetchedSubmissions)
+        setSubmissionError('')
+      } catch (error) {
+        if (!isMounted) {
+          return
+        }
+        setSubmissionError(
+          error instanceof Error ? error.message : 'Failed to load your requests.',
+        )
+      } finally {
+        if (isMounted) {
+          setIsLoadingSubmissions(false)
+        }
+      }
+    }
+
     void loadOptions()
+    void loadSubmissions()
 
     return () => {
       isMounted = false
     }
   }, [])
 
-  const tankerNationOptions = useMemo(
-    () => options?.tanker.nations ?? [],
-    [options],
-  )
+  const tankerNationOptions = useMemo(() => options?.tanker.nations ?? [], [options])
 
   const tankerTypeOptions = useMemo(() => {
     if (!options || !formValues.nationOrganisation) {
@@ -141,10 +283,7 @@ export default function SRDHolderFormWorkspace({
     )
   }, [options, formValues.nationOrganisation, formValues.tankerType])
 
-  const receiverNationOptions = useMemo(
-    () => options?.receiver.nations ?? [],
-    [options],
-  )
+  const receiverNationOptions = useMemo(() => options?.receiver.nations ?? [], [options])
 
   const receiverTypeOptions = useMemo(() => {
     if (!options || !formValues.receiverNation) {
@@ -164,14 +303,57 @@ export default function SRDHolderFormWorkspace({
     )
   }, [options, formValues.receiverNation, formValues.receiverType])
 
+  const cTankerOptions = useMemo(() => options?.specification.cTanker ?? [], [options])
+  const cReceiverOptions = useMemo(() => options?.specification.cReceiver ?? [], [options])
+  const refuelInterfaceOptions = useMemo(
+    () => options?.specification.refuellingInterface ?? [],
+    [options],
+  )
+
   const toggleLabels = isTankersPage
     ? { existing: 'Existing Tanker', replacement: 'New Tanker' }
     : isReceiversPage
       ? { existing: 'Existing Receiver', replacement: 'New Receiver' }
       : null
 
+  const visibleSubmissions = useMemo(() => {
+    return submissions.filter((submission) =>
+      isBothWorkspace
+        ? ['both', 'tanker', 'receiver'].includes(submission.requestTarget)
+        : submission.requestTarget === pageRequestTarget,
+    )
+  }, [isBothWorkspace, pageRequestTarget, submissions])
+
+  const handlePairingActionChange = (nextAction: PairingAction) => {
+    setEditingId(null)
+    setActiveMessage('')
+    setSubmissionError('')
+    setPairingAction(nextAction)
+
+    const nextConfig = getActionConfig(nextAction)
+    setFormValues((prev) => {
+      const next = createEmptyForm(
+        nextConfig.requestTarget,
+        nextConfig.requestMode,
+        nextConfig.requestType,
+      )
+
+      next.nationOrganisation = prev.nationOrganisation
+      next.tankerType = prev.tankerType
+      next.tankerModel = prev.tankerModel
+      next.receiverNation = prev.receiverNation
+      next.receiverType = prev.receiverType
+      next.receiverModel = prev.receiverModel
+      next.comment = prev.comment
+
+      return next
+    })
+  }
+
   const handleRequestModeChange = (requestMode: SubmissionRequestMode) => {
     setEditingId(null)
+    setActiveMessage('')
+    setSubmissionError('')
     setFormValues((prev) => {
       const next = createEmptyForm(pageRequestTarget, requestMode)
 
@@ -197,16 +379,12 @@ export default function SRDHolderFormWorkspace({
     })
   }
 
-  const visibleSubmissions = useMemo(() => {
-    return submissions.filter((submission) => {
-      return submission.requestTarget === pageRequestTarget
-    })
-  }, [pageRequestTarget, submissions])
-
   const handleChange = (
     event: ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>,
   ) => {
     const { name, value } = event.target
+    setActiveMessage('')
+    setSubmissionError('')
     setFormValues((prev) => {
       if (name === 'nationOrganisation') {
         return { ...prev, nationOrganisation: value, tankerType: '', tankerModel: '' }
@@ -224,32 +402,114 @@ export default function SRDHolderFormWorkspace({
     })
   }
 
-  const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    if (editingId) {
-      updateSubmission(editingId, formValues)
-      setSubmissions(updateSubmissionStatus(editingId, 'Pending Review'))
-      setEditingId(null)
-      setFormValues(createEmptyForm(pageRequestTarget, formValues.requestMode))
-      return
-    }
-    setSubmissions(addSubmission(formValues))
-    setFormValues(createEmptyForm(pageRequestTarget, formValues.requestMode))
+  const resetForm = () => {
+    setEditingId(null)
+    setActiveMessage('')
+    setSubmissionError('')
+    const resetTarget = isBothWorkspace
+      ? getActionConfig(pairingAction)
+      : {
+          requestTarget: pageRequestTarget,
+          requestMode: formValues.requestMode,
+          requestType: formValues.requestType,
+        }
+    setFormValues(
+      createEmptyForm(resetTarget.requestTarget, resetTarget.requestMode, resetTarget.requestType),
+    )
   }
 
-  const handleReset = () => {
-    setEditingId(null)
-    setFormValues(createEmptyForm(pageRequestTarget, formValues.requestMode))
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setIsSubmitting(true)
+    setSubmissionError('')
+    setActiveMessage('')
+
+    try {
+      const nextSubmission = editingId
+        ? await updateRejectedSubmission(editingId, formValues)
+        : await createSubmission(formValues)
+
+      setSubmissions((prevSubmissions) => {
+        if (editingId) {
+          return prevSubmissions.map((submission) =>
+            submission.id === editingId ? nextSubmission : submission,
+          )
+        }
+        return [nextSubmission, ...prevSubmissions]
+      })
+
+      setActiveMessage(
+        editingId
+          ? 'Your updated request was resubmitted for admin review.'
+          : 'Your request was submitted for admin review.',
+      )
+      setEditingId(null)
+      if (isBothWorkspace) {
+        setPairingAction(getPairingAction(formValues.requestTarget, formValues.requestMode, formValues.requestType))
+      }
+      setFormValues(
+        createEmptyForm(formValues.requestTarget, formValues.requestMode, formValues.requestType),
+      )
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : 'Request submission failed.')
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   const handleEditRejected = (submission: SRD_holderSubmission) => {
-    if (submission.status !== 'Rejected') return
-    const { id, status, createdAt, ...values } = submission
-    void id
-    void status
-    void createdAt
+    if (submission.statusKey !== 'rejected') {
+      return
+    }
+
     setEditingId(submission.id)
-    setFormValues(values)
+    setActiveMessage('')
+    setSubmissionError('')
+    if (isBothWorkspace) {
+      setPairingAction(
+        getPairingAction(submission.requestTarget, submission.requestMode, submission.requestType),
+      )
+    }
+    setFormValues({
+      requestTarget: submission.requestTarget,
+      requestType: submission.requestType,
+      requestMode: submission.requestMode,
+      nationOrganisation: submission.nationOrganisation,
+      tankerType: submission.tankerType,
+      tankerModel: submission.tankerModel,
+      receiverNation: submission.receiverNation,
+      receiverType: submission.receiverType,
+      receiverModel: submission.receiverModel,
+      cTanker: submission.cTanker,
+      cReciever: submission.cReciever,
+      vSrdT: submission.vSrdT,
+      vSrdR: submission.vSrdR,
+      refuellingInterface: submission.refuellingInterface,
+      minimumFlightLevel: submission.minimumFlightLevel,
+      maximumFlightLevel: submission.maximumFlightLevel,
+      minimumKcas: submission.minimumKcas,
+      maximumKcas: submission.maximumKcas,
+      maxAsM: submission.maxAsM,
+      planningFuelTransferRate: submission.planningFuelTransferRate,
+      comment: submission.comment,
+    })
+  }
+
+  const handleDeleteRequest = async (submission: SRD_holderSubmission) => {
+    try {
+      setSubmissionError('')
+      setActiveMessage('')
+      await deleteSubmission(submission.id)
+      setSubmissions((prevSubmissions) =>
+        prevSubmissions.filter((currentSubmission) => currentSubmission.id !== submission.id),
+      )
+      if (editingId === submission.id) {
+        resetForm()
+      }
+      setActiveMessage('The request was removed before processing.')
+    } catch (error) {
+      setSubmissionError(error instanceof Error ? error.message : 'Failed to delete request.')
+    }
   }
 
   return (
@@ -287,14 +547,20 @@ export default function SRDHolderFormWorkspace({
 
       <section className="role-card">
         <p className="viewer-intro">
-          This page lets you fill in and submit compatibility data for admin review.
+          Use this form to submit new aircraft entries or update an existing tanker and receiver pairing.
         </p>
         <p className="viewer-intro">
-          {editingId
-            ? 'Edit your rejected form and submit it again for admin review.'
-            : 'Fill in the form below and submit it for admin review.'}
+          Approved requests are only written to the live tables after the admin processes them.
         </p>
+        {pageRequestTarget === 'both' ? (
+          <p className="viewer-intro">
+            Deleting a pairing only removes the selected pairing. Aircraft records stay in the database.
+          </p>
+        ) : null}
         {optionsError && <p className="viewer-error">{optionsError}</p>}
+        {submissionError && <p className="viewer-error">{submissionError}</p>}
+        {activeMessage && <p className="create-account-success">{activeMessage}</p>}
+
         <form className="srd_holder-form" onSubmit={handleSubmit}>
           {toggleLabels ? (
             <div className="request-mode-toggle" role="tablist" aria-label="Request mode">
@@ -322,6 +588,56 @@ export default function SRDHolderFormWorkspace({
               </button>
             </div>
           ) : null}
+
+          {isBothWorkspace ? (
+            <div
+              className="request-mode-toggle request-mode-toggle--four"
+              role="tablist"
+              aria-label="Pairing action"
+            >
+              <button
+                className={`request-mode-toggle__option ${
+                  pairingAction === 'update_pairing' ? 'request-mode-toggle__option--active' : ''
+                }`}
+                type="button"
+                onClick={() => handlePairingActionChange('update_pairing')}
+                aria-pressed={pairingAction === 'update_pairing'}
+              >
+                Update Pairing
+              </button>
+              <button
+                className={`request-mode-toggle__option ${
+                  pairingAction === 'delete_pairing' ? 'request-mode-toggle__option--active' : ''
+                }`}
+                type="button"
+                onClick={() => handlePairingActionChange('delete_pairing')}
+                aria-pressed={pairingAction === 'delete_pairing'}
+              >
+                Delete Pairing
+              </button>
+              <button
+                className={`request-mode-toggle__option ${
+                  pairingAction === 'new_tanker' ? 'request-mode-toggle__option--active' : ''
+                }`}
+                type="button"
+                onClick={() => handlePairingActionChange('new_tanker')}
+                aria-pressed={pairingAction === 'new_tanker'}
+              >
+                New Tanker
+              </button>
+              <button
+                className={`request-mode-toggle__option ${
+                  pairingAction === 'new_receiver' ? 'request-mode-toggle__option--active' : ''
+                }`}
+                type="button"
+                onClick={() => handlePairingActionChange('new_receiver')}
+                aria-pressed={pairingAction === 'new_receiver'}
+              >
+                New Receiver
+              </button>
+            </div>
+          ) : null}
+
           <div className="srd_holder-form__grid">
             {showTankerSelection ? (
               <>
@@ -355,6 +671,7 @@ export default function SRDHolderFormWorkspace({
                     </select>
                   )}
                 </label>
+
                 <label className="input-group">
                   Tanker Type
                   {isNewTankerRequest ? (
@@ -385,6 +702,7 @@ export default function SRDHolderFormWorkspace({
                     </select>
                   )}
                 </label>
+
                 <label className="input-group">
                   Tanker Model
                   {isNewTankerRequest ? (
@@ -417,6 +735,7 @@ export default function SRDHolderFormWorkspace({
                 </label>
               </>
             ) : null}
+
             {showReceiverSelection ? (
               <>
                 <label className="input-group">
@@ -449,6 +768,7 @@ export default function SRDHolderFormWorkspace({
                     </select>
                   )}
                 </label>
+
                 <label className="input-group">
                   Receiver Type
                   {isNewReceiverRequest ? (
@@ -479,6 +799,7 @@ export default function SRDHolderFormWorkspace({
                     </select>
                   )}
                 </label>
+
                 <label className="input-group">
                   Receiver Model
                   {isNewReceiverRequest ? (
@@ -511,29 +832,26 @@ export default function SRDHolderFormWorkspace({
                 </label>
               </>
             ) : null}
+
             {showTankerCompatibility ? (
               <label className="input-group">
                 Cat-tanker
-                <select
-                  name="cTanker"
-                  value={formValues.cTanker}
-                  onChange={handleChange}
-                  required
-                >
+                <select name="cTanker" value={formValues.cTanker} onChange={handleChange} required>
                   <option value="" disabled>
                     Select
                   </option>
-                  {C_CATEGORY_OPTIONS.map((option) => (
+                  {cTankerOptions.map((option) => (
                     <option key={option} value={option}>
-                      {option}
+                      {getCCategoryLabel(option)}
                     </option>
                   ))}
                 </select>
               </label>
             ) : null}
+
             {showReceiverCompatibility ? (
               <label className="input-group">
-                Cat-reciever
+                Cat-receiver
                 <select
                   name="cReciever"
                   value={formValues.cReciever}
@@ -543,17 +861,18 @@ export default function SRDHolderFormWorkspace({
                   <option value="" disabled>
                     Select
                   </option>
-                  {C_CATEGORY_OPTIONS.map((option) => (
+                  {cReceiverOptions.map((option) => (
                     <option key={option} value={option}>
-                      {option}
+                      {getCCategoryLabel(option)}
                     </option>
                   ))}
                 </select>
               </label>
             ) : null}
+
             {showTankerCompatibility ? (
               <label className="input-group">
-                Version Srd Tanker
+                Version SRD Tanker
                 <input
                   type="text"
                   name="vSrdT"
@@ -564,19 +883,21 @@ export default function SRDHolderFormWorkspace({
                 />
               </label>
             ) : null}
+
             {showReceiverCompatibility ? (
               <label className="input-group">
-                Version Srd Receiver
+                Version SRD Receiver
                 <input
                   type="text"
                   name="vSrdR"
                   value={formValues.vSrdR}
                   onChange={handleChange}
-                  placeholder="V_srd_R"
+                  placeholder="Version SRD"
                   required
                 />
               </label>
             ) : null}
+
             {showOperationalFields ? (
               <>
                 <label className="input-group">
@@ -587,16 +908,17 @@ export default function SRDHolderFormWorkspace({
                     onChange={handleChange}
                     required
                   >
-                    <option value="" disabled>
-                      Select
+                  <option value="" disabled>
+                    Select
+                  </option>
+                  {refuelInterfaceOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {getRefuelInterfaceLabel(option)}
                     </option>
-                    {REFUEL_INTERFACE_OPTIONS.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
+                  ))}
+                </select>
                 </label>
+
                 <label className="input-group">
                   Minimum Altitude FL
                   <input
@@ -608,6 +930,7 @@ export default function SRDHolderFormWorkspace({
                     required
                   />
                 </label>
+
                 <label className="input-group">
                   Maximum Altitude FL
                   <input
@@ -619,8 +942,9 @@ export default function SRDHolderFormWorkspace({
                     required
                   />
                 </label>
+
                 <label className="input-group">
-                  Minimum speed KCAS
+                  Minimum Speed KCAS
                   <input
                     type="text"
                     name="minimumKcas"
@@ -630,8 +954,9 @@ export default function SRDHolderFormWorkspace({
                     required
                   />
                 </label>
+
                 <label className="input-group">
-                  Maximum speed KCAS
+                  Maximum Speed KCAS
                   <input
                     type="text"
                     name="maximumKcas"
@@ -641,8 +966,9 @@ export default function SRDHolderFormWorkspace({
                     required
                   />
                 </label>
+
                 <label className="input-group">
-                  Maximum speed MACH
+                  Maximum Speed MACH
                   <input
                     type="text"
                     name="maxAsM"
@@ -652,6 +978,7 @@ export default function SRDHolderFormWorkspace({
                     required
                   />
                 </label>
+
                 <label className="input-group">
                   Fuel Flow Rate
                   <input
@@ -659,30 +986,38 @@ export default function SRDHolderFormWorkspace({
                     name="planningFuelTransferRate"
                     value={formValues.planningFuelTransferRate}
                     onChange={handleChange}
-                    placeholder="900 lb/min"
+                    placeholder="900"
                     required
                   />
                 </label>
               </>
             ) : null}
-            <label className="input-group">
+
+            <label className="input-group input-group--wide">
               Comment
               <textarea
                 name="comment"
                 value={formValues.comment}
                 onChange={handleChange}
-                maxLength={150}
-                placeholder="Max 150 characters, enough for 3 short sentences."
+                maxLength={300}
+                placeholder="Explain the request clearly for the admin review."
                 required
               />
             </label>
           </div>
+
           <div className="srd_holder-form__actions">
-            <button className="btn ghost" type="button" onClick={handleReset}>
+            <button className="btn ghost" type="button" onClick={resetForm}>
               {editingId ? 'Cancel Edit' : 'Clear'}
             </button>
-            <button className="btn primary" type="submit">
-              {editingId ? 'Save Changes' : 'Save Form'}
+            <button className="btn primary" type="submit" disabled={isSubmitting}>
+              {isSubmitting
+                ? 'Submitting...'
+                : editingId
+                  ? 'Resubmit Request'
+                  : formValues.requestType === 'delete'
+                    ? 'Submit Delete Request'
+                    : 'Submit Request'}
             </button>
           </div>
         </form>
@@ -690,157 +1025,105 @@ export default function SRDHolderFormWorkspace({
 
       <section className="role-card">
         <div className="role-card__header">
-          <h2>Submitted Forms</h2>
-          <span className="role-card__meta">{visibleSubmissions.length} total</span>
+          <div>
+            <h2>Your Requests</h2>
+            <p className="viewer-intro">
+              Rejected requests can be edited. Pending or rejected requests can be removed before
+              processing.
+            </p>
+          </div>
         </div>
-        <p className="muted">Track the status of each submission after the admin decision.</p>
-        {visibleSubmissions.length === 0 ? (
-          <p className="muted">No forms submitted yet.</p>
+
+        {isLoadingSubmissions ? (
+          <p className="viewer-intro">Loading your requests...</p>
+        ) : visibleSubmissions.length === 0 ? (
+          <p className="viewer-intro">No requests submitted yet for this workspace.</p>
         ) : (
           <div className="table-wrap">
             <table className="srd_holder-table">
-              <colgroup>
-                <col className="col-nation" />
-                <col className="col-type" />
-                <col className="col-model" />
-                <col className="col-nation" />
-                <col className="col-type" />
-                <col className="col-model" />
-                {showTankerCompatibility ? <col className="col-minfl" /> : null}
-                {showReceiverCompatibility ? <col className="col-minfl" /> : null}
-                {showTankerCompatibility ? <col className="col-minfl" /> : null}
-                {showReceiverCompatibility ? <col className="col-minfl" /> : null}
-                <col className="col-refuel" />
-                <col className="col-minfl" />
-                <col className="col-maxfl" />
-                <col className="col-minkcas" />
-                <col className="col-maxkcas" />
-                <col className="col-maxkcas" />
-                <col className="col-fuel" />
-                <col className="col-fuel" />
-                <col className="col-status" />
-                <col className="col-actions" />
-              </colgroup>
               <thead>
                 <tr>
-                  <th>
-                    <span title="Tanker nation / organisation">Tanker Nation</span>
-                  </th>
-                  <th>
-                    <span title="Tanker aircraft type">Tanker Type</span>
-                  </th>
-                  <th>
-                    <span title="Tanker aircraft model">Tanker Model</span>
-                  </th>
-                  <th>
-                    <span title="Receiver nation / organisation">Receiver Nation</span>
-                  </th>
-                  <th>
-                    <span title="Receiver aircraft type">Receiver Type</span>
-                  </th>
-                  <th>
-                    <span title="Receiver aircraft model">Receiver Model</span>
-                  </th>
-                  {showTankerCompatibility ? (
-                    <th>
-                      <span title="Compatibility tanker code">C_tanker</span>
-                    </th>
-                  ) : null}
-                  {showReceiverCompatibility ? (
-                    <th>
-                      <span title="Compatibility receiver code">C_reciever</span>
-                    </th>
-                  ) : null}
-                  {showTankerCompatibility ? (
-                    <th>
-                      <span title="Valid SRD tanker">V_srd_T</span>
-                    </th>
-                  ) : null}
-                  {showReceiverCompatibility ? (
-                    <th>
-                      <span title="Valid SRD receiver">V_srd_R</span>
-                    </th>
-                  ) : null}
-                  <th>
-                    <span title="Refuelling interface type">Refuel IF</span>
-                  </th>
-                  <th>
-                    <span title="Minimum altitude Flight Level">Min FL</span>
-                  </th>
-                  <th>
-                    <span title="Maximum altitude Flight Level">Max FL</span>
-                  </th>
-                  <th>
-                    <span title="Minimum speed KCAS">Min KCAS</span>
-                  </th>
-                  <th>
-                    <span title="Maximum speed KCAS">Max KCAS</span>
-                  </th>
-                  <th>
-                    <span title="Maximum speed Mach">Max_as_m</span>
-                  </th>
-                  <th>
-                    <span title="Planning fuel transfer rate">Fuel rate</span>
-                  </th>
-                  <th>
-                    <span title="Comment (max 150 characters)">Comment</span>
-                  </th>
-                  <th className="srd_holder-table__status">Status</th>
-                  <th>Action</th>
+                  <th className="col-number">Nr</th>
+                  <th>Request</th>
+                  <th>Tanker</th>
+                  <th>Receiver</th>
+                  <th>Submitted</th>
+                  <th>Status</th>
+                  <th>Validation</th>
+                  <th>Admin Feedback</th>
+                  <th className="col-actions">Actions</th>
                 </tr>
               </thead>
               <tbody>
-                {visibleSubmissions.map((submission) => (
-                  <tr key={submission.id}>
-                    <td data-label="Tanker Nation">{submission.nationOrganisation}</td>
-                    <td data-label="Tanker Type">{submission.tankerType}</td>
-                    <td data-label="Tanker Model">{submission.tankerModel}</td>
-                    <td data-label="Receiver Nation">{submission.receiverNation}</td>
-                    <td data-label="Receiver Type">{submission.receiverType}</td>
-                    <td data-label="Receiver Model">{submission.receiverModel}</td>
-                    {showTankerCompatibility ? (
-                      <td data-label="C_tanker">{submission.cTanker}</td>
-                    ) : null}
-                    {showReceiverCompatibility ? (
-                      <td data-label="C_reciever">{submission.cReciever}</td>
-                    ) : null}
-                    {showTankerCompatibility ? <td data-label="V_srd_T">{submission.vSrdT}</td> : null}
-                    {showReceiverCompatibility ? <td data-label="V_srd_R">{submission.vSrdR}</td> : null}
-                    <td data-label="Refuel IF">{submission.refuellingInterface}</td>
-                    <td data-label="Min FL">{submission.minimumFlightLevel}</td>
-                    <td data-label="Max FL">{submission.maximumFlightLevel}</td>
-                    <td data-label="Min KCAS">{submission.minimumKcas}</td>
-                    <td data-label="Max KCAS">{submission.maximumKcas}</td>
-                    <td data-label="Max_as_m">{submission.maxAsM}</td>
-                    <td data-label="Fuel rate">{submission.planningFuelTransferRate}</td>
-                    <td data-label="Comment">{submission.comment}</td>
-                    <td className="srd_holder-table__status">
-                      <span
-                        className={`status-tag ${
-                          submission.status === 'Approved'
-                            ? 'status-tag--approved'
-                            : submission.status === 'Rejected'
-                              ? 'status-tag--rejected'
-                              : 'status-tag--pending'
-                        }`}
-                      >
-                        {submission.status}
-                      </span>
-                    </td>
-                    <td data-label="Action">
-                      <div className="admin-actions">
-                        <button
-                          className="btn ghost small"
-                          type="button"
-                          onClick={() => handleEditRejected(submission)}
-                          disabled={submission.status !== 'Rejected'}
-                        >
-                          Edit
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {visibleSubmissions.map((submission, index) => {
+                  const canEdit = submission.statusKey === 'rejected'
+                  const canDelete =
+                    submission.statusKey === 'pending_review' ||
+                    submission.statusKey === 'rejected'
+
+                  return (
+                    <tr key={submission.id}>
+                      <td data-label="Nr">{index + 1}</td>
+                      <td data-label="Request">
+                        <strong>{formatRequestLabel(submission)}</strong>
+                        <br />
+                        <span>{submission.comment || '-'}</span>
+                      </td>
+                      <td data-label="Tanker">
+                        {formatAircraftLine(
+                          submission.nationOrganisation,
+                          submission.tankerType,
+                          submission.tankerModel,
+                        )}
+                      </td>
+                      <td data-label="Receiver">
+                        {formatAircraftLine(
+                          submission.receiverNation,
+                          submission.receiverType,
+                          submission.receiverModel,
+                        )}
+                      </td>
+                      <td data-label="Submitted">{formatDate(submission.submittedAt)}</td>
+                      <td className="srd_holder-table__status" data-label="Status">
+                        <span className={`status-tag ${getStatusClass(submission.statusKey)}`}>
+                          {submission.status}
+                        </span>
+                      </td>
+                      <td data-label="Validation">
+                        {submission.validationStatus ? (
+                          <>
+                            <strong>{submission.validationStatus}</strong>
+                            <br />
+                            <span>{submission.validationSummary || '-'}</span>
+                          </>
+                        ) : (
+                          '-'
+                        )}
+                      </td>
+                      <td data-label="Admin Feedback">{submission.reviewComment || '-'}</td>
+                      <td data-label="Actions">
+                        <div className="admin-actions">
+                          <button
+                            className="btn ghost small"
+                            type="button"
+                            onClick={() => handleEditRejected(submission)}
+                            disabled={!canEdit}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            className="btn ghost small"
+                            type="button"
+                            onClick={() => handleDeleteRequest(submission)}
+                            disabled={!canDelete}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
