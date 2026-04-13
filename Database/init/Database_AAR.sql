@@ -45,7 +45,8 @@ SELECT setval('compatibility_id_seq', (SELECT MAX(id) FROM compatibility));
 -- 	CROSS JOIN receivers r
 -- 	ON CONFLICT (tanker_id, receiver_id) DO NOTHING;
 	
-DROP TABLE IF EXISTS specifications;---------------------------------------------------------------------------------
+DROP TABLE IF EXISTS specifications;
+---------------------------------------------------------------------------------
 CREATE TABLE specifications (
     id SERIAL PRIMARY KEY,
     compatibility_id INT NOT NULL REFERENCES compatibility(id) ON DELETE CASCADE,
@@ -66,21 +67,9 @@ CREATE TABLE specifications (
 CREATE UNIQUE INDEX IF NOT EXISTS specifications_compatibility_id_uidx
 ON specifications (compatibility_id);
 
-
-INSERT INTO specifications (compatibility_id, c_tanker, c_receiver, v_srd_tanker, v_srd_receiver, boom_pod_bda, min_alt, max_alt, min_as, max_as_kcas, max_as_m, fuel_flow_rate, notes)
-SELECT c.id, s.c_tanker, s.c_receiver, s.v_srd_tanker, s.v_srd_receiver, s.boom_pod_bda, s.min_alt, s.max_alt, s.min_as, s.max_as_kcas, s.max_as_m, s.fuel_flow_rate, s.notes
-FROM specifications s
-JOIN tankers t 
-	ON s.tanker_model = t.model 
-	AND s.tanker_nation = t.nation
-	AND s.tanker_type = t.type
-JOIN receivers r 
-	ON s.receiver_model = r.model 
-	AND s.receiver_nation = r.nation
-	AND s.receiver_type = r.type
-JOIN compatibility c 
-	ON c.tanker_id = t.id 
-	AND c.receiver_id = r.id;
+-- Populate specifications only from a valid external import/source table.
+-- Do not insert from specifications itself: that query is invalid because this
+-- table does not contain tanker_nation/type/model or receiver_nation/type/model.
 
 	----------------------------------------------------------------------------------
 	--Create Rol en userID table---
@@ -305,19 +294,21 @@ VALUES ('admin'), ('srd_holder'), ('viewer')
 ON CONFLICT ("name") DO NOTHING;
 
 ----------------------------------------------------
--- Insert users with hash
+-- Insert users with hash-OK
 
 INSERT INTO "User" ("name","email","RolRolID","password_hash")
 VALUES
 ('Admin','admin@japcc.com',
  (SELECT "RolID" FROM "Rol" WHERE "name"='admin'),
- '$2b$10$egRYV7eGB6EDFF7JGIsvzOUbXlz3ta2nO8LrWyvXhn4b3pu6gR4hS'),
+ '$2b$10$HMQUhN.p9xAbjYdRn1s8fOro7C9tmcSMLa.nJqf7XbEE9WL8X/Ele'),
 
-('SRD_Holder','srd@mindef.com',
+('Mike','mike@mindef.nl',
  (SELECT "RolID" FROM "Rol" WHERE "name"='srd_holder'),
- '$2b$10$egRYV7eGB6EDFF7JGIsvzOUbXlz3ta2nO8LrWyvXhn4b3pu6gR4hS'),
+ '$2b$10$RE.Pc/FtcDTLcjeB.4PiZOQEvYrx.jWpnNnkze9X47aEoRMQfCEPa'),
 
 ('Viewer','viewer@japcc.com',
  (SELECT "RolID" FROM "Rol" WHERE "name"='viewer'),
- '$2b$10$egRYV7eGB6EDFF7JGIsvzOUbXlz3ta2nO8LrWyvXhn4b3pu6gR4hS')
+ '$2b$10$HMQUhN.p9xAbjYdRn1s8fOro7C9tmcSMLa.nJqf7XbEE9WL8X/Ele')
 ON CONFLICT ("email") DO NOTHING;
+
+
