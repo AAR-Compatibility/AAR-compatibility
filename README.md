@@ -24,7 +24,7 @@ pip 25.3 from C:\Users\ejwes\AppData\Local\Packages\PythonSoftwareFoundation.Pyt
 ```bash
 pip install pandas
 pip install sqlalchemy
-pip install psycopg binary
+pip install "psycopg[binary]"
 pip install openpyxl
 ```
 
@@ -117,7 +117,58 @@ If you want to run the frontend outside Docker:
 
 ## Database
 
-See [database README](Database/README.md) for database details.
+See [database README](Database/README.md) for source-data details.
+
+### Python import file
+
+To get [`Database/AAR_excel_to_sql.py`](/d:/Visual%20studio%20code/AAR-compatibility/Database/AAR_excel_to_sql.py) working correctly, the following turned out to be necessary:
+
+1. The Excel source file must be present as `Database/AAR_matrix_2.xlsx`.
+2. The workbook must contain the sheets `Tankers`, `Receivers`, and `Specifications`, because the script now reads by sheet name instead of sheet order.
+3. A PostgreSQL database must be running on `localhost:5432` with database name `aar_comp_2`, because that connection string is hardcoded in the script.
+4. Text fields such as nation, type, and model have to be stripped of leading/trailing spaces before importing, otherwise identical rows are treated as different values.
+5. Duplicate rows in `Specifications` have to be removed per tanker/receiver combination; the script keeps the last occurrence and prints a warning when duplicates are found.
+6. The tanker and receiver master tables have to be built from both the dedicated sheets and the combinations found in `Specifications`, so missing aircraft are still inserted before the compatibility/specification import runs.
+7. The compatibility table should only be filled with combinations that actually exist in `Specifications`. A full cross join between all tankers and receivers produced incorrect compatibility rows.
+
+Run the import from the project root with:
+
+```bash
+python .\Database\AAR_excel_to_sql.py
+```
+
+If the script fails, first check whether the Excel file path, sheet names, Python packages, and local PostgreSQL connection all match the points above.
+
+### Reset, rebuild, and reload the database
+
+Use the following steps when you want a clean local database rebuild:
+
+1. Stop the stack and remove the PostgreSQL volume:
+
+```bash
+docker compose down -v
+```
+
+2. Start the services again:
+
+```bash
+docker compose up -d --build
+```
+
+3. Wait until PostgreSQL is running on `localhost:5432`.
+4. Reload the Excel data into the database:
+
+```bash
+python .\Database\AAR_excel_to_sql.py
+```
+
+Use these steps when you only want to reload the data without deleting the whole database:
+
+```bash
+python .\Database\AAR_excel_to_sql.py
+```
+
+The import script truncates `tankers`, `receivers`, and `compatibility`, then inserts the current Excel data again. Use `docker compose down -v` only when you want to remove the full local PostgreSQL data volume and rebuild from scratch.
 
 
 # Front-end

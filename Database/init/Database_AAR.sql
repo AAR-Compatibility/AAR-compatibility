@@ -59,8 +59,8 @@ CREATE TABLE specifications (
     max_alt INT,
     min_as INT,
     max_as_kcas INT,
-	max_as_m INT,
-    fuel_flow_rate INT,
+	max_as_m NUMERIC(4,2),
+    fuel_flow_rate NUMERIC(10,2),
     notes TEXT
 );
 
