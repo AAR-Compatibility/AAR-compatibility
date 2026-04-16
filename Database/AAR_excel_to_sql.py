@@ -10,6 +10,8 @@ engine = create_engine('postgresql://postgres:ikwillerencoderen156@localhost:543
 BASE_DIR = os.path.dirname(__file__)
 excel_path = os.path.join(BASE_DIR, "AAR_matrix_2.xlsx")
 
+# Create the core lookup tables used by the import. The specifications table
+# is created elsewhere in the SQL bootstrap script.
 create_tables_sql = """
 CREATE TABLE IF NOT EXISTS tankers(
     id SERIAL PRIMARY KEY,
@@ -54,6 +56,8 @@ ALLOWED_UNARY_OPERATORS = {
 
 
 def evaluate_simple_excel_formula(formula):
+    # Only evaluate simple numeric formulas so formula-backed cells can still
+    # be imported even when pandas does not return a computed value.
     expression = formula.lstrip("=").strip()
     node = ast.parse(expression, mode="eval")
 
@@ -75,6 +79,8 @@ def evaluate_simple_excel_formula(formula):
 
 
 def load_formula_backed_column(workbook_path, sheet_name, column_name):
+    # Read the raw worksheet so we can inspect literal cell contents, including
+    # formulas that may not be pre-calculated in the workbook.
     workbook = load_workbook(workbook_path, data_only=False, read_only=True)
     sheet = workbook[sheet_name]
     header_row = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
@@ -109,11 +115,14 @@ def load_formula_backed_column(workbook_path, sheet_name, column_name):
 def clean_text_columns(frame, columns):
     cleaned = frame.copy()
     for column in columns:
+        # Normalise whitespace to avoid failed joins caused by hidden spaces.
         cleaned[column] = cleaned[column].astype("string").str.strip()
     return cleaned
 
 
 def build_master_rows(master_frame, specification_frame, source_columns):
+    # Extend the master tanker/receiver lists with combinations that appear in
+    # Specifications so later joins always have a matching base record.
     spec_rows = specification_frame[source_columns].rename(
         columns={
             source_columns[0]: 'nation',
@@ -129,6 +138,8 @@ def build_master_rows(master_frame, specification_frame, source_columns):
 
 
 def prepare_specifications(frame):
+    # Keep only usable specification rows and collapse duplicate pairings to a
+    # single final record per tanker/receiver combination.
     cleaned = clean_text_columns(
         frame,
         PAIR_COLUMNS + [
@@ -157,6 +168,7 @@ def prepare_specifications(frame):
 tankers_excel = pd.read_excel(excel_path, sheet_name='Tankers')
 receivers_excel = pd.read_excel(excel_path, sheet_name='Receivers')
 specifications_excel = pd.read_excel(excel_path, sheet_name='Specifications')
+# Load this column separately so Excel formulas are preserved as numeric values.
 specifications_excel['fuel_flow_rate'] = load_formula_backed_column(
     excel_path,
     'Specifications',
@@ -204,6 +216,8 @@ with engine.begin() as conn:
     )
 
     # 5 Generate compatibility only from unique combinations found in Specifications
+    # Match specification rows back to the inserted tanker and receiver IDs so
+    # compatibility only contains real supported pairs.
     compatibility_pairs = specifications_excel[PAIR_COLUMNS].merge(
         df_tankers,
         left_on=['tanker_nation', 'tanker_type', 'tanker_model'],
@@ -225,6 +239,8 @@ with engine.begin() as conn:
     )
 
     # 6 Merge specifications with IDs
+    # Resolve every specification row to its compatibility_id before inserting
+    # the detailed operational data into the specifications table.
     specs_with_ids = specifications_excel.merge(
         df_tankers,
         left_on=['tanker_nation', 'tanker_type', 'tanker_model'],
