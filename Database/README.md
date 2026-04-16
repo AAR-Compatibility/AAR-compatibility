@@ -22,5 +22,6 @@ If you are working on one of the SRD's: please comment here. This way we can pre
 | Canada        |             | 
 | MMF           | Mike        | Yes (FEB 2026)
 | USA           | Mike        | No. Only start with KC-135 
+|France         | Eva         | No. Added only compatibility with Phenix
 
 
